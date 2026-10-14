@@ -1,0 +1,2 @@
+[functions.dl-technik-auth]
+verify_jwt = false
