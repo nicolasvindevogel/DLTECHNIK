@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.3</title>
+<title>DL TECHNIK · V3.4</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -210,6 +210,30 @@ html,body{background:#f6f8f7;color:#17211c}
 .sheet{background:#fff}
 .back{color:#087445;font-weight:700}
 .chev{color:#91a198}
+</style>
+
+
+<style id="dl-technik-v3-4-camera">
+.camera-modal{position:fixed;inset:0;z-index:120;background:#07120d;display:flex;flex-direction:column}
+.camera-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:max(12px,env(safe-area-inset-top)) 14px 10px;color:#fff}
+.camera-top b{font-size:13px}
+.camera-close{border:0;background:rgba(255,255,255,.13);color:#fff;border-radius:999px;width:36px;height:36px;font-size:20px}
+.camera-stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+.camera-stage video{width:100%;height:100%;object-fit:cover;display:block}
+.camera-guide{position:absolute;inset:14px;border:1px solid rgba(255,255,255,.35);border-radius:18px;pointer-events:none}
+.camera-bottom{background:#07120d;color:#fff;padding:12px 14px calc(14px + env(safe-area-inset-bottom))}
+.camera-counter{text-align:center;font-size:10px;color:rgba(255,255,255,.72);margin-bottom:8px}
+.camera-actions{display:grid;grid-template-columns:1fr 82px 1fr;align-items:center;gap:12px}
+.camera-gallery,.camera-done{border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:12px;padding:11px 8px;font-size:10px;font-weight:800}
+.camera-done{background:#087445}
+.shutter{width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:transparent;display:flex;align-items:center;justify-content:center;margin:auto}
+.shutter:after{content:"";width:54px;height:54px;border-radius:50%;background:#fff}
+.camera-previews{display:flex;gap:6px;overflow-x:auto;margin-top:10px;padding-bottom:2px}
+.camera-preview{position:relative;flex:0 0 58px;width:58px;height:58px;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,.25)}
+.camera-preview img{width:100%;height:100%;object-fit:cover}
+.camera-preview button{position:absolute;top:2px;right:2px;border:0;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.72);color:#fff;font-size:13px}
+.locked-report{border:1px solid #cfe7d8;background:#eef8f1;color:#35624a;border-radius:12px;padding:13px;font-size:11px;line-height:1.5}
+.draft-note{display:flex;align-items:center;gap:7px;background:#f5f8f6;border:1px solid #dfe7e2;border-radius:10px;padding:9px 10px;color:#66736c;font-size:10px;margin-bottom:12px}
 </style>
 
 </head>
@@ -433,17 +457,17 @@ function renderDetail(){
   if(open){bindCheckChanges()}
 }
 function renderVisitAction(j,latest){
+  if(j.status==="report_received")return `<div class="card"><div class="section-title">Rapport envoyé</div><div class="locked-report"><b>✓ Rapport transmis à WAPILOT</b><br>Le personnel technique peut encore le consulter, mais il n’est plus modifiable. Une correction éventuelle doit être faite depuis WAPILOT.</div></div>`;
   if(["validated","archived","cancelled"].includes(j.status))return `<div class="card"><div class="empty"><div class="ico">✓</div>Cette intervention est clôturée dans WAPILOT.</div></div>`;
-  const text=j.status==="report_received"?"Ajouter un nouveau passage":"Remplir le rapport";
-  const sub=j.status==="report_received"?"Créez un nouveau passage pour poursuivre le chantier.":"Ajoutez les photos et complétez simplement le rapport d’intervention.";
-  return `<div class="card"><div class="section-title">Rapport terrain</div><p class="sub">${sub}</p><button class="primary" style="width:100%;margin-top:10px" onclick="prepareVisit()">${text}</button></div>`;
+  return `<div class="card"><div class="section-title">Rapport terrain</div><p class="sub">Ajoutez les photos et complétez simplement le rapport d’intervention. Vous pouvez l’enregistrer et y revenir autant de fois que nécessaire avant l’envoi.</p><button class="primary" style="width:100%;margin-top:10px" onclick="prepareVisit()">Remplir le rapport</button></div>`;
 }
 function renderActiveVisit(v,d){
   const photos=d.photos||[],before=photos.filter(p=>p.visit_id===v.id&&p.photo_type==="before"),after=photos.filter(p=>p.visit_id===v.id&&p.photo_type==="after");
   const checks=(d.checks||[]).filter(c=>c.visit_id===v.id);
   const total=Number(v.manual_duration_minutes||0),h=Math.floor(total/60),m=total%60;
   return `<div class="card">
-    <div class="section-title"><span>Rapport d’intervention</span><span class="chip">À COMPLÉTER</span></div>
+    <div class="section-title"><span>Rapport d’intervention</span><span class="chip">BROUILLON</span></div>
+    <div class="draft-note">● Brouillon enregistré : vous pouvez quitter cette page et reprendre le rapport plus tard.</div>
     <div class="report-intro">Aucun chronomètre n’est utilisé. Indiquez simplement le temps réellement passé sur place avant d’envoyer votre rapport.</div>
     <div class="section-title">Photos avant <span class="sub">${before.length} photo(s)</span></div>
     ${photoGrid(before,"before",v.id)}
@@ -459,7 +483,7 @@ function renderActiveVisit(v,d){
       </div>
     </div>
     <div class="field"><label>REMARQUES</label><textarea id="remarks" placeholder="Difficulté rencontrée, suivi nécessaire…">${esc(v.remarks||"")}</textarea></div>
-    <div class="footer-actions"><button class="light" onclick="saveVisit()">Enregistrer sans envoyer</button><button class="primary" onclick="finishVisit()">Envoyer le rapport à WAPILOT</button></div>
+    <div class="footer-actions"><button class="light" onclick="saveVisit()">Enregistrer</button><button class="primary" onclick="finishVisit()">Envoyer rapport</button></div>
   </div>`;
 }
 function photoGrid(arr,type,visitId){
@@ -482,8 +506,16 @@ async function saveChecks(){
   await api("save_checks",{visit_id:v.id,checks:els.map(e=>({id:e.dataset.check,checked:e.checked}))});
 }
 function bindCheckChanges(){document.querySelectorAll("[data-check]").forEach(e=>e.addEventListener("change",()=>saveChecks().catch(()=>{})))}
-async function saveVisit(){
-  try{await api("save_visit",visitPayload());await saveChecks();toast("Rapport enregistré")}catch(e){alert(e.message)}
+async function saveVisit(silent=false){
+  try{
+    await api("save_visit",visitPayload());
+    await saveChecks();
+    if(!silent)toast("Brouillon enregistré");
+    return true;
+  }catch(e){
+    if(!silent)alert(e.message);
+    return false;
+  }
 }
 async function finishVisit(){
   const p=visitPayload();
@@ -494,26 +526,166 @@ async function finishVisit(){
 }
 
 /* ---------------- PHOTOS ---------------- */
-function pickPhotos(type,visitId){
-  const input=document.createElement("input");input.type="file";input.accept="image/*";input.multiple=true;input.setAttribute("capture","environment");
-  input.onchange=async()=>{const files=[...input.files];if(!files.length)return;openModal(`<h3>Envoi des photos</h3><div id="uploadProgress" class="sub">Préparation…</div>`);let i=0;try{for(const f of files){i++;$("uploadProgress").textContent=`Photo ${i}/${files.length}…`;await uploadPhoto(f,type,visitId)}closeModal();toast("Photos ajoutées");await jobDetail(state.current)}catch(e){closeModal();alert(e.message)}};
+let cameraStream=null;
+let cameraShots=[];
+let cameraPhotoType=null;
+let cameraVisitId=null;
+
+async function pickPhotos(type,visitId){
+  // Sauvegarde d'abord les champs actuellement saisis pour éviter toute perte.
+  await saveVisit(true);
+  cameraPhotoType=type;
+  cameraVisitId=visitId;
+  cameraShots=[];
+
+  if(navigator.mediaDevices?.getUserMedia){
+    try{
+      cameraStream=await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},
+        audio:false
+      });
+      renderCamera();
+      return;
+    }catch(e){
+      console.warn("Caméra intégrée indisponible",e);
+    }
+  }
+  pickGallery(type,visitId);
+}
+
+function renderCamera(){
+  $("modalRoot").innerHTML=`<div class="camera-modal">
+    <div class="camera-top"><b>${cameraPhotoType==="before"?"Photos avant":"Photos après"}</b><button class="camera-close" onclick="closeCamera()">×</button></div>
+    <div class="camera-stage"><video id="cameraVideo" autoplay playsinline muted></video><div class="camera-guide"></div></div>
+    <div class="camera-bottom">
+      <div id="cameraCounter" class="camera-counter">0 photo prise · vous pouvez enchaîner les prises</div>
+      <div class="camera-actions">
+        <button class="camera-gallery" onclick="pickGalleryFromCamera()">Galerie</button>
+        <button class="shutter" onclick="captureShot()" aria-label="Prendre une photo"></button>
+        <button id="cameraDone" class="camera-done" onclick="uploadCameraShots()" disabled>Terminer</button>
+      </div>
+      <div id="cameraPreviews" class="camera-previews"></div>
+    </div>
+  </div>`;
+  const video=$("cameraVideo");
+  video.srcObject=cameraStream;
+}
+
+async function captureShot(){
+  const video=$("cameraVideo");
+  if(!video || !video.videoWidth)return;
+  const max=1800;
+  const scale=Math.min(1,max/Math.max(video.videoWidth,video.videoHeight));
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.round(video.videoWidth*scale);
+  canvas.height=Math.round(video.videoHeight*scale);
+  canvas.getContext("2d").drawImage(video,0,0,canvas.width,canvas.height);
+  const blob=await new Promise(res=>canvas.toBlob(res,"image/jpeg",.84));
+  if(!blob)return;
+  cameraShots.push({blob,url:URL.createObjectURL(blob),name:`photo-${Date.now()}-${cameraShots.length+1}.jpg`});
+  refreshCameraShots();
+}
+
+function refreshCameraShots(){
+  const c=$("cameraCounter"),p=$("cameraPreviews"),d=$("cameraDone");
+  if(c)c.textContent=`${cameraShots.length} photo${cameraShots.length>1?"s":""} prise${cameraShots.length>1?"s":""} · continuez si nécessaire`;
+  if(d)d.disabled=!cameraShots.length;
+  if(p)p.innerHTML=cameraShots.map((s,i)=>`<div class="camera-preview"><img src="${s.url}"><button onclick="removeCameraShot(${i})">×</button></div>`).join("");
+}
+
+function removeCameraShot(i){
+  const s=cameraShots[i];if(s?.url)URL.revokeObjectURL(s.url);
+  cameraShots.splice(i,1);refreshCameraShots();
+}
+
+function stopCamera(){
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
+}
+
+function closeCamera(){
+  stopCamera();
+  cameraShots.forEach(s=>s.url&&URL.revokeObjectURL(s.url));
+  cameraShots=[];
+  $("modalRoot").innerHTML="";
+}
+
+async function uploadCameraShots(){
+  if(!cameraShots.length)return;
+  const shots=[...cameraShots];
+  stopCamera();
+  $("modalRoot").innerHTML=`<div class="modal"><div class="sheet"><h3>Envoi des photos</h3><div id="uploadProgress" class="sub">Préparation…</div></div></div>`;
+  try{
+    for(let i=0;i<shots.length;i++){
+      $("uploadProgress").textContent=`Photo ${i+1}/${shots.length}…`;
+      const file=new File([shots[i].blob],shots[i].name,{type:"image/jpeg"});
+      await uploadPhoto(file,cameraPhotoType,cameraVisitId);
+    }
+    shots.forEach(s=>s.url&&URL.revokeObjectURL(s.url));
+    $("modalRoot").innerHTML="";
+    toast(`${shots.length} photo${shots.length>1?"s":""} ajoutée${shots.length>1?"s":""}`);
+    await jobDetail(state.current);
+  }catch(e){
+    $("modalRoot").innerHTML="";
+    alert(e.message);
+  }
+}
+
+function pickGalleryFromCamera(){
+  stopCamera();
+  $("modalRoot").innerHTML="";
+  pickGallery(cameraPhotoType,cameraVisitId);
+}
+
+function pickGallery(type,visitId){
+  const input=document.createElement("input");
+  input.type="file";
+  input.accept="image/*";
+  input.multiple=true;
+  input.onchange=async()=>{
+    const files=[...input.files];
+    if(!files.length)return;
+    openModal(`<h3>Envoi des photos</h3><div id="uploadProgress" class="sub">Préparation…</div>`);
+    try{
+      for(let i=0;i<files.length;i++){
+        $("uploadProgress").textContent=`Photo ${i+1}/${files.length}…`;
+        await uploadPhoto(files[i],type,visitId);
+      }
+      closeModal();
+      toast(`${files.length} photo${files.length>1?"s":""} ajoutée${files.length>1?"s":""}`);
+      await jobDetail(state.current);
+    }catch(e){
+      closeModal();alert(e.message);
+    }
+  };
   input.click();
 }
+
 async function compressImage(file){
   if(!file.type.startsWith("image/"))return file;
   try{
     const bitmap=await createImageBitmap(file),max=1600,scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
-    const w=Math.round(bitmap.width*scale),h=Math.round(bitmap.height*scale),canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;canvas.getContext("2d").drawImage(bitmap,0,0,w,h);
-    const blob=await new Promise(res=>canvas.toBlob(res,"image/jpeg",.82));return blob||file;
+    const w=Math.round(bitmap.width*scale),h=Math.round(bitmap.height*scale),canvas=document.createElement("canvas");
+    canvas.width=w;canvas.height=h;canvas.getContext("2d").drawImage(bitmap,0,0,w,h);
+    const blob=await new Promise(res=>canvas.toBlob(res,"image/jpeg",.82));
+    return blob||file;
   }catch{return file}
 }
+
 async function uploadPhoto(file,type,visitId){
   const blob=await compressImage(file),mime=blob.type||file.type||"image/jpeg";
   const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:type,mime_type:mime});
   const {error}=await storageClient.storage.from("technik-interventions").uploadToSignedUrl(sign.path,sign.token,blob,{contentType:mime});
   if(error)throw error;
-  await api("register_photo",{visit_id:visitId,photo_type:type,storage_path:sign.path,original_filename:file.name,mime_type:mime,file_size_bytes:blob.size});
+  await api("register_photo",{
+    visit_id:visitId,
+    photo_type:type,
+    storage_path:sign.path,
+    original_filename:file.name||`photo-${Date.now()}.jpg`,
+    mime_type:mime,
+    file_size_bytes:blob.size
+  });
 }
+
 async function deletePhoto(id){
   if(!confirm("Supprimer cette photo ?"))return;
   try{await api("delete_photo",{photo_id:id});toast("Photo supprimée");await jobDetail(state.current)}catch(e){alert(e.message)}
@@ -521,7 +693,7 @@ async function deletePhoto(id){
 
 /* ---------------- MODAL ---------------- */
 function openModal(body){$("modalRoot").innerHTML=`<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">${body}</div></div>`}
-function closeModal(){$("modalRoot").innerHTML=""}
+function closeModal(){stopCamera?.();$("modalRoot").innerHTML=""}
 
 boot();
 </script>
