@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
+  <title>DL TECHNIK · Interventions</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <style>
+    :root{--bg:#f4f5f7;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--accent:#111827;--green:#087445;--danger:#b42318;--shadow:0 8px 26px rgba(17,24,39,.08)}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    body{padding:max(18px,env(safe-area-inset-top)) 16px max(22px,env(safe-area-inset-bottom))}
+    button,input{font:inherit}
+    .app{max-width:680px;margin:0 auto}
+    .brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+    .logo{width:48px;height:48px;border-radius:14px;background:#111827;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900}
+    .brand h1{font-size:18px;margin:0;font-weight:900}
+    .brand p{font-size:12px;color:var(--muted);margin:3px 0 0}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:18px;margin-bottom:14px}
+    .title{font-size:22px;font-weight:900;margin:0 0 6px}
+    .sub{font-size:13px;color:var(--muted);line-height:1.5;margin:0}
+    .users{display:grid;gap:10px;margin-top:16px}
+    .user{width:100%;display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#fff;border-radius:14px;padding:13px;text-align:left;cursor:pointer}
+    .avatar{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f3f4f6;font-weight:900}
+    .user b{display:block;font-size:14px}.user small{display:block;color:var(--muted);margin-top:2px}.arrow{margin-left:auto;color:#9ca3af;font-size:20px}
+    .pin{display:flex;justify-content:center;gap:9px;margin:22px 0 16px}
+    .dot{width:15px;height:15px;border-radius:50%;border:2px solid #cbd5e1;background:#fff}.dot.on{background:#111827;border-color:#111827}
+    .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:340px;margin:0 auto}
+    .key{height:62px;border:0;border-radius:16px;background:#fff;box-shadow:0 2px 8px rgba(17,24,39,.08);font-size:21px;font-weight:800;cursor:pointer}.key.secondary{font-size:14px;color:var(--muted)}
+    .stack{display:grid;gap:10px;margin-top:16px}.home-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+    .hello{font-size:24px;font-weight:900;margin:0}.ghost{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:12px}
+    .tile{display:flex;align-items:center;gap:14px;width:100%;border:1px solid var(--line);background:#fff;border-radius:17px;padding:17px;text-align:left;cursor:pointer}
+    .tile .ico{width:44px;height:44px;border-radius:13px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:22px}
+    .tile b{display:block;font-size:15px}.tile small{display:block;color:var(--muted);margin-top:3px}.tile .count{margin-left:auto;background:#111827;color:#fff;border-radius:999px;min-width:27px;padding:4px 8px;text-align:center;font-size:11px;font-weight:900}
+    .status{font-size:12px;text-align:center;color:var(--muted);min-height:19px;margin-top:12px}.status.err{color:var(--danger);font-weight:700}
+    .hide{display:none!important}.back{border:0;background:transparent;padding:0;color:var(--muted);cursor:pointer;margin-bottom:12px}.install{font-size:11px;color:var(--muted);text-align:center;margin-top:18px}
+    @media(display-mode:standalone){.install{display:none}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="brand"><div class="logo">DL</div><div><h1>DL TECHNIK</h1><p>Interventions terrain · WAPILOT</p></div></div>
+
+  <section id="loading" class="card"><p class="title">Connexion…</p><p class="sub">Vérification de cet appareil.</p></section>
+
+  <section id="choose" class="card hide">
+    <p class="title">Qui êtes-vous ?</p><p class="sub">Sélectionnez votre nom pour accéder à l'application.</p>
+    <div id="users" class="users"></div><div id="chooseStatus" class="status"></div>
+  </section>
+
+  <section id="pinScreen" class="card hide">
+    <button class="back" onclick="goChoose()">← Changer de technicien</button>
+    <p id="pinTitle" class="title">Votre code PIN</p><p id="pinSub" class="sub"></p>
+    <div id="pinDots" class="pin"></div>
+    <div class="pad">
+      <button class="key" onclick="tapPin('1')">1</button><button class="key" onclick="tapPin('2')">2</button><button class="key" onclick="tapPin('3')">3</button>
+      <button class="key" onclick="tapPin('4')">4</button><button class="key" onclick="tapPin('5')">5</button><button class="key" onclick="tapPin('6')">6</button>
+      <button class="key" onclick="tapPin('7')">7</button><button class="key" onclick="tapPin('8')">8</button><button class="key" onclick="tapPin('9')">9</button>
+      <button class="key secondary" onclick="clearPin()">Effacer</button><button class="key" onclick="tapPin('0')">0</button><button class="key secondary" onclick="backPin()">⌫</button>
+    </div>
+    <div id="pinStatus" class="status"></div>
+  </section>
+
+  <section id="home" class="hide">
+    <div class="home-head"><div><p id="hello" class="hello">Bonjour</p><p class="sub">DL TECHNIK · Application terrain</p></div><button class="ghost" onclick="logout()">Changer d'utilisateur</button></div>
+    <div class="stack">
+      <button class="tile" onclick="comingSoon('Mes interventions')"><span class="ico">🛠️</span><span><b>Mes interventions</b><small>Travaux qui me sont attribués</small></span><span class="count">0</span></button>
+      <button class="tile" onclick="comingSoon('Nouvelle intervention')"><span class="ico">＋</span><span><b>Nouvelle intervention</b><small>Créer rapidement un rapport sur place</small></span></button>
+      <button class="tile" onclick="comingSoon('Terminées')"><span class="ico">✓</span><span><b>Terminées</b><small>Mes rapports déjà envoyés</small></span></button>
+    </div>
+    <div id="homeStatus" class="status">Connexion sécurisée active sur cet appareil.</div>
+    <div class="install">Pour installer : menu du navigateur → Ajouter à l'écran d'accueil.</div>
+  </section>
+</div>
+
+<script>
+const CFG = {
+  supabaseUrl: "https://ccboibbhsztcupfcrndx.supabase.co",
+  publishableKey: "sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",
+  functionName: "dl-technik-auth"
+};
+const API = CFG.supabaseUrl + '/functions/v1/' + CFG.functionName;
+const TOKEN_KEY='dl_technik_device_token_v1';
+let users=[], selected=null, pin='', pinMode='login', firstPin='';
+
+const $=id=>document.getElementById(id);
+function show(id){['loading','choose','pinScreen','home'].forEach(x=>$(x).classList.toggle('hide',x!==id))}
+function deviceName(){return `${navigator.platform||'Appareil'} · ${navigator.userAgent.includes('Mobile')?'Mobile':'Navigateur'}`}
+async function call(action,payload={}){
+  const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','apikey':CFG.publishableKey,'Authorization':'Bearer '+CFG.publishableKey},body:JSON.stringify({action,device_name:deviceName(),...payload})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||'Erreur de connexion.');
+  return j;
+}
+function initials(n){return String(n||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase()}
+function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+async function boot(){
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  const token=localStorage.getItem(TOKEN_KEY);
+  if(token){
+    try{
+      const r=await call('session',{device_token:token});
+      if(r.valid&&r.technician){enter(r.technician);return}
+    }catch(_){localStorage.removeItem(TOKEN_KEY)}
+  }
+  await loadUsers();
+}
+async function loadUsers(){
+  show('choose');$('chooseStatus').textContent='Chargement…';
+  try{const r=await call('list_users');users=r.users||[];renderUsers();$('chooseStatus').textContent=''}
+  catch(e){$('chooseStatus').textContent=e.message;$('chooseStatus').className='status err'}
+}
+function renderUsers(){
+  $('users').innerHTML=users.length?users.map(u=>`<button class="user" onclick="selectUser('${u.id}')"><span class="avatar">${initials(u.display_name)}</span><span><b>${esc(u.display_name)}</b><small>${esc(u.trade||'Équipe terrain')}</small></span><span class="arrow">›</span></button>`).join(''):'<div class="status">Aucun technicien actif.</div>';
+}
+function selectUser(id){
+  selected=users.find(x=>x.id===id);if(!selected)return;
+  pin='';firstPin='';pinMode=selected.pin_configured?'login':'setup1';
+  $('pinTitle').textContent=pinMode==='login'?'Code PIN':'Choisissez votre PIN';
+  $('pinSub').textContent=pinMode==='login'?`Entrez le code à 6 chiffres de ${selected.display_name}.`:'Choisissez un code personnel à 6 chiffres. Il restera confidentiel.';
+  $('pinStatus').textContent='';$('pinStatus').className='status';drawDots();show('pinScreen');
+}
+function goChoose(){selected=null;pin='';firstPin='';show('choose')}
+function drawDots(){$('pinDots').innerHTML=Array.from({length:6},(_,i)=>`<span class="dot ${i<pin.length?'on':''}"></span>`).join('')}
+function tapPin(n){if(pin.length>=6)return;pin+=n;drawDots();if(pin.length===6)setTimeout(submitPin,120)}
+function backPin(){pin=pin.slice(0,-1);drawDots()}
+function clearPin(){pin='';drawDots()}
+async function submitPin(){
+  $('pinStatus').textContent='Vérification…';$('pinStatus').className='status';
+  try{
+    if(pinMode==='setup1'){
+      firstPin=pin;pin='';pinMode='setup2';drawDots();
+      $('pinTitle').textContent='Confirmez votre PIN';$('pinSub').textContent='Retapez exactement les mêmes 6 chiffres.';$('pinStatus').textContent='';return;
+    }
+    if(pinMode==='setup2'){
+      if(pin!==firstPin)throw new Error('Les deux codes ne correspondent pas.');
+      const r=await call('setup_pin',{technician_id:selected.id,pin});localStorage.setItem(TOKEN_KEY,r.device_token);enter(r.technician);return;
+    }
+    const r=await call('login',{technician_id:selected.id,pin});localStorage.setItem(TOKEN_KEY,r.device_token);enter(r.technician);
+  }catch(e){
+    $('pinStatus').textContent=e.message;$('pinStatus').className='status err';pin='';drawDots();
+    if(pinMode==='setup2'){firstPin='';pinMode='setup1';$('pinTitle').textContent='Choisissez votre PIN';$('pinSub').textContent='Choisissez un code personnel à 6 chiffres.'}
+  }
+}
+function enter(t){selected=t;$('hello').textContent='Bonjour '+String(t.display_name||'').split(' ')[0];show('home')}
+async function logout(){
+  const token=localStorage.getItem(TOKEN_KEY);
+  try{if(token)await call('logout',{device_token:token})}catch(_){}
+  localStorage.removeItem(TOKEN_KEY);selected=null;await loadUsers();
+}
+function comingSoon(label){$('homeStatus').textContent=label+' : ce module arrive dans l’étape suivante.'}
+boot();
+</script>
+</body>
+</html>
