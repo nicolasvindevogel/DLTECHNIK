@@ -540,7 +540,9 @@ async function createJob(){
     const additional=[...document.querySelectorAll(".new-team-tech:checked")].map(x=>x.value);
     const r=await api("create_job",{location_type:loc,copro_id:$("coproId").value,external_location_name:$("extName")?.value,external_address_line1:$("extAddress")?.value,external_postal_code:$("extPostal")?.value,external_city:$("extCity")?.value,intervention_type_code:$("newType").value,priority:$("newPriority").value,title:$("newTitle").value,description:$("newDesc").value,planned_date:$("newDate").value,additional_technician_ids:additional});
     toast("Intervention créée");
-    await api("prepare_visit",{job_id:r.job_id});
+    const prep=await api("prepare_visit",{job_id:r.job_id});
+    // Evite qu'un ancien cache ou une réponse sans can_edit classe ce brouillon comme celui d'un collègue.
+    try{await offDelete("kv",offCacheKey("job_detail",{job_id:r.job_id}))}catch(_){}
     await go("detail",r.job_id);
   }catch(e){alert(e.message)}finally{if(btn)btn.disabled=false}
 }
@@ -554,8 +556,32 @@ async function jobDetail(id){
   catch(e){if(!cached)$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
 
-function currentOpenVisit(){return state.currentDetail?.visits?.find(v=>["draft","in_progress"].includes(v.status)&&v.can_edit)||null}
-function otherOpenVisit(){return state.currentDetail?.visits?.find(v=>["draft","in_progress"].includes(v.status)&&!v.can_edit)||null}
+function currentTechnicianId(){
+  return String(
+    state.currentDetail?.current_technician_id ||
+    me?.technician_id ||
+    me?.id ||
+    ""
+  );
+}
+function visitBelongsToCurrentTechnician(v){
+  if(!v)return false;
+  if(v.can_edit===true)return true;
+  const currentId=currentTechnicianId();
+  return !!currentId && String(v.technician_id||"")===currentId;
+}
+function currentOpenVisit(){
+  return state.currentDetail?.visits?.find(v=>
+    ["draft","in_progress"].includes(v.status) &&
+    visitBelongsToCurrentTechnician(v)
+  )||null
+}
+function otherOpenVisit(){
+  return state.currentDetail?.visits?.find(v=>
+    ["draft","in_progress"].includes(v.status) &&
+    !visitBelongsToCurrentTechnician(v)
+  )||null
+}
 function latestVisit(){return state.currentDetail?.visits?.[0]||null}
 function renderDetail(){
   const d=state.currentDetail,j=d.job,open=currentOpenVisit(),otherOpen=otherOpenVisit(),latest=latestVisit();
@@ -643,7 +669,12 @@ async function prepareVisit(){
     const local={id:`local-visit-${state.current}`,job_id:state.current,technician_id:me?.id,visit_date:new Date().toISOString().slice(0,10),status:"draft",can_edit:true,work_done:"",materials_used:"",remarks:"",started_at:null,ended_at:null,duration_minutes:0};
     d.visits.unshift(local);await offCacheApi("job_detail",{job_id:state.current},d);renderDetail();toast("Rapport créé hors ligne");return
   }
-  try{await api("prepare_visit",{job_id:state.current});toast("Rapport prêt à compléter");await jobDetail(state.current)}catch(e){alert(e.message)}
+  try{
+    await api("prepare_visit",{job_id:state.current});
+    try{await offDelete("kv",offCacheKey("job_detail",{job_id:state.current}))}catch(_){}
+    toast("Rapport prêt à compléter");
+    await jobDetail(state.current)
+  }catch(e){alert(e.message)}
 }
 function visitPayload(){
   const v=currentOpenVisit();
