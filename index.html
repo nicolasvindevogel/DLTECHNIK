@@ -266,6 +266,13 @@ html,body{background:#f6f8f7;color:#17211c}
 .sync-card{border:1px solid #d4ebdb;background:#f2faf5;border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:10px;color:#456151}
 .sync-card strong{color:#087445}
 </style>
+
+<style id="dl-technik-v3-8-background-photos-team">
+.photo.syncing-photo:after{content:"Envoi…";position:absolute;left:4px;bottom:4px;background:rgba(8,116,69,.92);color:#fff;border-radius:6px;padding:2px 5px;font-size:7px;font-weight:800}
+.team-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
+.team-actions .light{padding:9px 11px;font-size:10px}
+.bg-upload-note{font-size:9px;color:#66736c;margin-top:6px;line-height:1.4}
+</style>
 </head>
 <body>
 <div id="authRoot"></div>
@@ -299,6 +306,8 @@ let me=null,users=[],pin="",pinStep="login",pinFirst="",selectedUser=null;
 let state={dashboard:null,jobs:[],done:[],refs:null,current:null,currentDetail:null};
 
 const OFFLINE_DB_NAME="dl_technik_offline_v1",OFFLINE_DB_VERSION=1;
+let offlineSyncRunning=false;
+let backgroundPhotoSyncTimer=null;
 const OFFLINE_READ_ACTIONS=new Set(["session","dashboard","list_jobs","reference_data","job_detail"]);
 function offOpen(){return new Promise((resolve,reject)=>{const r=indexedDB.open(OFFLINE_DB_NAME,OFFLINE_DB_VERSION);r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("kv"))d.createObjectStore("kv");if(!d.objectStoreNames.contains("reports"))d.createObjectStore("reports",{keyPath:"job_id"});if(!d.objectStoreNames.contains("photos"))d.createObjectStore("photos",{keyPath:"id"})};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
 async function offPut(store,key,value){const d=await offOpen();return new Promise((resolve,reject)=>{const r=key===undefined?d.transaction(store,"readwrite").objectStore(store).put(value):d.transaction(store,"readwrite").objectStore(store).put(value,key);r.onsuccess=()=>resolve(value);r.onerror=()=>reject(r.error)})}
@@ -319,40 +328,142 @@ async function offQueueReport(submit=false){
   await offPut("reports",undefined,rec);if(v)Object.assign(v,payload);await offCacheApi("job_detail",{job_id:jobId},state.currentDetail);await refreshNetworkBadge();return rec
 }
 async function offQueuePhoto(file,type,visitId){
-  const blob=await compressImage(file),id=`local-photo-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-  const rec={id,job_id:state.current,visit_id:visitId&&!String(visitId).startsWith("local-")?visitId:null,photo_type:type,blob,mime_type:blob.type||file.type||"image/jpeg",original_filename:file.name||`photo-${Date.now()}.jpg`,created_at:Date.now()};
+  const id=`local-photo-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+  const blob=file instanceof Blob?file:new Blob([file],{type:file.type||"image/jpeg"});
+  const mime=blob.type||file.type||"image/jpeg";
+  const rec={
+    id,
+    job_id:state.current,
+    visit_id:visitId&&!String(visitId).startsWith("local-")?visitId:null,
+    local_visit_id:visitId||null,
+    photo_type:type,
+    blob,
+    mime_type:mime,
+    original_filename:file.name||`photo-${Date.now()}.jpg`,
+    created_at:Date.now()
+  };
+
+  // Sécurise d'abord la photo dans IndexedDB. Aucun réseau nécessaire.
   await offPut("photos",undefined,rec);
-  state.currentDetail.photos=state.currentDetail.photos||[];
-  state.currentDetail.photos.push({id,visit_id:visitId,photo_type:type,signed_url:URL.createObjectURL(blob),_offline:true});
-  await offCacheApi("job_detail",{job_id:state.current},state.currentDetail);await refreshNetworkBadge();return rec
+
+  const localUrl=URL.createObjectURL(blob);
+  if(state.currentDetail){
+    state.currentDetail.photos=state.currentDetail.photos||[];
+    state.currentDetail.photos.push({
+      id,
+      visit_id:visitId,
+      photo_type:type,
+      signed_url:localUrl,
+      _offline:true,
+      _syncing:navigator.onLine
+    });
+    await offCacheApi("job_detail",{job_id:state.current},state.currentDetail);
+    appendLocalPhotoThumb({id,visit_id:visitId,photo_type:type,signed_url:localUrl,_offline:true,_syncing:navigator.onLine});
+  }
+  await refreshNetworkBadge();
+  return rec;
 }
+function appendLocalPhotoThumb(p){
+  const grid=document.getElementById(`photoGrid-${p.photo_type}-${p.visit_id}`);
+  if(!grid || grid.querySelector(`[data-photo-id="${p.id}"]`))return;
+  const add=grid.querySelector(".add-photo");
+  const el=document.createElement("div");
+  el.className=`photo pending-photo ${p._syncing?"syncing-photo":""}`;
+  el.dataset.photoId=p.id;
+  el.innerHTML=`<img src="${esc(p.signed_url)}" alt="Photo"><button onclick="event.stopPropagation();deletePhoto('${p.id}')">×</button>`;
+  grid.insertBefore(el,add||null);
+}
+function scheduleBackgroundPhotoSync(delay=120){
+  if(!navigator.onLine)return;
+  if(backgroundPhotoSyncTimer)clearTimeout(backgroundPhotoSyncTimer);
+  backgroundPhotoSyncTimer=setTimeout(()=>{
+    backgroundPhotoSyncTimer=null;
+    syncOfflineQueue().catch(e=>console.warn("Synchro photos",e));
+  },delay);
+}
+
 async function offHydrateLocalPhotos(detail){
   if(!detail?.job?.id)return detail;
   const q=(await offAll("photos")).filter(p=>String(p.job_id)===String(detail.job.id));detail.photos=detail.photos||[];
   for(const p of q){if(!detail.photos.some(x=>String(x.id)===String(p.id)))detail.photos.push({id:p.id,visit_id:p.visit_id||`local-visit-${detail.job.id}`,photo_type:p.photo_type,signed_url:URL.createObjectURL(p.blob),_offline:true})}
   return detail
 }
+async function syncOneQueuedPhoto(p,visitId){
+  const compressed=await compressImage(new File([p.blob],p.original_filename||`photo-${Date.now()}.jpg`,{type:p.mime_type||"image/jpeg"}));
+  const mime=compressed.type||p.mime_type||"image/jpeg";
+  const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:p.photo_type,mime_type:mime},{skipOffline:true});
+  const up=await storageClient.storage.from("technik-interventions").uploadToSignedUrl(sign.path,sign.token,compressed,{contentType:mime});
+  if(up.error)throw up.error;
+  await api("register_photo",{
+    visit_id:visitId,
+    photo_type:p.photo_type,
+    storage_path:sign.path,
+    original_filename:p.original_filename||`photo-${Date.now()}.jpg`,
+    mime_type:mime,
+    file_size_bytes:compressed.size
+  },{skipOffline:true});
+  await offDelete("photos",p.id);
+
+  const local=(state.currentDetail?.photos||[]).find(x=>String(x.id)===String(p.id));
+  if(local){
+    local._offline=false;
+    local._syncing=false;
+    const el=document.querySelector(`[data-photo-id="${CSS.escape(p.id)}"]`);
+    if(el)el.classList.remove("pending-photo","syncing-photo");
+  }
+}
 async function syncOfflineQueue(){
-  if(!navigator.onLine)return;const e=$("network");if(e){e.textContent="SYNCHRONISATION…";e.classList.add("syncing")}
+  if(!navigator.onLine || offlineSyncRunning)return;
+  offlineSyncRunning=true;
+  const e=$("network");
+  if(e){e.textContent="SYNCHRONISATION…";e.classList.add("syncing")}
+  let syncedSomething=false;
   try{
-    for(const r of await offAll("reports")){
+    const reports=await offAll("reports");
+
+    // 1. Synchronisation des rapports et des photos associées.
+    for(const r of reports){
       let visitId=r.visit_id;
-      if(!visitId){const prep=await api("prepare_visit",{job_id:r.job_id},{skipOffline:true});visitId=prep.visit?.id||prep.visit_id;if(!visitId)throw new Error("Impossible de préparer le rapport.")}
+      if(!visitId){
+        const prep=await api("prepare_visit",{job_id:r.job_id},{skipOffline:true});
+        visitId=prep.visit?.id||prep.visit_id;
+        if(!visitId)throw new Error("Impossible de préparer le rapport.");
+        r.visit_id=visitId;
+        await offPut("reports",undefined,r);
+      }
+
       await api("save_visit",{...r.payload,visit_id:visitId},{skipOffline:true});
       if(r.checks?.length)await api("save_checks",{visit_id:visitId,checks:r.checks},{skipOffline:true});
-      for(const p of (await offAll("photos")).filter(x=>String(x.job_id)===String(r.job_id))){
-        const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:p.photo_type,mime_type:p.mime_type},{skipOffline:true});
-        const up=await storageClient.storage.from("technik-interventions").uploadToSignedUrl(sign.path,sign.token,p.blob,{contentType:p.mime_type});if(up.error)throw up.error;
-        await api("register_photo",{visit_id:visitId,photo_type:p.photo_type,storage_path:sign.path,original_filename:p.original_filename,mime_type:p.mime_type,file_size_bytes:p.blob.size},{skipOffline:true});
-        await offDelete("photos",p.id)
+
+      const associated=(await offAll("photos")).filter(p=>String(p.job_id)===String(r.job_id));
+      for(const p of associated){
+        await syncOneQueuedPhoto(p,visitId);
+        syncedSomething=true;
       }
+
       if(r.submit)await api("finish_visit",{...r.payload,visit_id:visitId},{skipOffline:true});
-      await offDelete("reports",r.job_id)
+      await offDelete("reports",r.job_id);
+      syncedSomething=true;
     }
-    toast("Synchronisation terminée")
-  }catch(err){console.warn("Synchronisation hors ligne",err)}
-  finally{await refreshNetworkBadge();if(state.current&&navigator.onLine){try{const d=await api("job_detail",{job_id:state.current},{skipOffline:true});state.currentDetail=d;renderDetail()}catch(_){}}}
+
+    // 2. Photos d'un rapport déjà existant en ligne :
+    // elles peuvent partir indépendamment pendant que le technicien continue son formulaire.
+    const remaining=await offAll("photos");
+    for(const p of remaining){
+      if(!p.visit_id)continue;
+      await syncOneQueuedPhoto(p,p.visit_id);
+      syncedSomething=true;
+    }
+
+    if(syncedSomething)toast("Synchronisation terminée");
+  }catch(err){
+    console.warn("Synchronisation arrière-plan",err);
+  }finally{
+    offlineSyncRunning=false;
+    await refreshNetworkBadge();
+  }
 }
+
 addEventListener("online",()=>{refreshNetworkBadge();setTimeout(syncOfflineQueue,300)});
 addEventListener("offline",refreshNetworkBadge);
 
@@ -590,7 +701,10 @@ function renderDetail(){
   $("content").innerHTML=`
     ${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Vous pouvez compléter le rapport et ajouter des photos. Tout sera synchronisé au retour du réseau.</div>`:""}
     <button class="back" onclick="go('jobs')">← Retour aux interventions</button>
-    <div class="card"><div class="detail-head"><div class="job-meta" style="margin-top:0">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||"")}</span></div><h2>${esc(j.title)}</h2><div class="detail-place">📍 ${esc(j.location_label||"")}${j.location_address?" · "+esc(j.location_address):""}</div>${team.length?`<div class="team-summary">${team.map(n=>`<span class="team-chip">👤 ${esc(n)}</span>`).join("")}</div>`:""}</div><div class="section-title">Travail demandé</div><div class="request">${esc(j.description||"Aucune consigne complémentaire.")}</div></div>
+    <div class="card"><div class="detail-head"><div class="job-meta" style="margin-top:0">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||"")}</span></div><h2>${esc(j.title)}</h2><div class="detail-place">📍 ${esc(j.location_label||"")}${j.location_address?" · "+esc(j.location_address):""}</div>
+      ${team.length?`<div class="team-summary">${team.map(n=>`<span class="team-chip">👤 ${esc(n)}</span>`).join("")}</div>`:""}
+      ${!["report_received","validated","archived","cancelled"].includes(j.status)?`<div class="team-actions"><span class="sub">Équipe affectée à cette intervention</span><button class="light" onclick="openAddTechnicianModal()">＋ Ajouter un technicien</button></div>`:""}
+    </div><div class="section-title">Travail demandé</div><div class="request">${esc(j.description||"Aucune consigne complémentaire.")}</div></div>
     ${open?renderActiveVisit(open,d):otherOpen?`<div class="card"><div class="section-title">Rapport commun</div><div class="report-owner-note">Un collègue affecté à cette intervention a déjà commencé le rapport. Un seul rapport est prévu pour toute l'équipe. Vous pouvez consulter l'intervention mais le rapport en cours reste sous la responsabilité de son rédacteur.</div></div>`:renderVisitAction(j,latest)}
     ${d.visits?.length?`<div class="card"><div class="section-title">Historique des passages</div><div class="timeline">${d.visits.map(v=>renderVisitHistory(v)).join("")}</div></div>`:""}
   `;
@@ -629,6 +743,50 @@ function refreshAutoDuration(){
   const mins=calcVisitMinutes(a,d),el=$("autoDuration");
   if(el)el.textContent=formatAutoDuration(mins);
 }
+async function openAddTechnicianModal(){
+  if(!navigator.onLine){
+    alert("L'ajout d'un technicien nécessite une connexion. Le rapport et les photos restent utilisables hors ligne.");
+    return;
+  }
+  try{
+    const refs=await ensureRefs();
+    const currentIds=new Set((state.currentDetail?.job?.assignees||[]).map(a=>String(a.technician_id)));
+    const available=(refs.technicians||[]).filter(u=>!currentIds.has(String(u.id)));
+
+    if(!available.length){
+      alert("Tous les techniciens actifs sont déjà affectés à cette intervention.");
+      return;
+    }
+
+    openModal(`<h3>Ajouter un technicien</h3>
+      <div class="sub" style="margin-bottom:10px">Le collègue ajouté verra immédiatement l'intervention dans sa PWA. Il n'y aura toujours qu'un seul rapport commun.</div>
+      <div class="team-picker">
+        ${available.map(u=>`<label class="team-choice"><input type="checkbox" class="add-team-tech" value="${esc(u.id)}"><span><b>${esc(u.display_name)}</b>${u.trade?`<small>${esc(u.trade)}</small>`:""}</span></label>`).join("")}
+      </div>
+      <div class="footer-actions" style="margin-top:14px">
+        <button class="light" onclick="closeModal()">Annuler</button>
+        <button class="primary" onclick="confirmAddTechnicians()">Ajouter</button>
+      </div>`);
+  }catch(e){alert(e.message)}
+}
+async function confirmAddTechnicians(){
+  const ids=[...document.querySelectorAll(".add-team-tech:checked")].map(x=>x.value);
+  if(!ids.length)return alert("Sélectionnez au moins un technicien.");
+  const btn=document.querySelector("#modalRoot .primary");
+  if(btn)btn.disabled=true;
+  try{
+    const detail=await api("add_job_assignees",{job_id:state.current,technician_ids:ids});
+    state.currentDetail=detail;
+    await offCacheApi("job_detail",{job_id:state.current},detail);
+    closeModal();
+    renderDetail();
+    toast(ids.length>1?"Techniciens ajoutés":"Technicien ajouté");
+  }catch(e){
+    if(btn)btn.disabled=false;
+    alert(e.message);
+  }
+}
+
 function renderActiveVisit(v,d){
   const photos=d.photos||[],before=photos.filter(p=>p.visit_id===v.id&&p.photo_type==="before"),after=photos.filter(p=>p.visit_id===v.id&&p.photo_type==="after");
   const checks=(d.checks||[]).filter(c=>c.visit_id===v.id);
@@ -657,7 +815,7 @@ function renderActiveVisit(v,d){
   </div>`;
 }
 function photoGrid(arr,type,visitId){
-  return `<div class="photos">${arr.map(p=>`<div class="photo ${p._offline?"pending-photo":""}">${p.signed_url?`<img src="${esc(p.signed_url)}" alt="Photo">`:""}<button onclick="event.stopPropagation();deletePhoto('${p.id}')">×</button></div>`).join("")}<button class="add-photo" onclick="pickPhotos('${type}','${visitId}')"><b>＋</b><span>Ajouter</span></button></div>`;
+  return `<div class="photos" id="photoGrid-${type}-${visitId}">${arr.map(p=>`<div class="photo ${p._offline?"pending-photo":""} ${p._syncing?"syncing-photo":""}" data-photo-id="${esc(p.id)}">${p.signed_url?`<img src="${esc(p.signed_url)}" alt="Photo">`:""}<button onclick="event.stopPropagation();deletePhoto('${p.id}')">×</button></div>`).join("")}<button class="add-photo" onclick="pickPhotos('${type}','${visitId}')"><b>＋</b><span>Ajouter</span></button></div><div class="bg-upload-note">Les photos sont sécurisées sur le téléphone puis envoyées en arrière-plan.</div>`;
 }
 function renderVisitHistory(v){
   const mins=v.manual_duration_minutes??v.duration_minutes;
@@ -804,22 +962,25 @@ function closeCamera(){
 async function uploadCameraShots(){
   if(!cameraShots.length)return;
   const shots=[...cameraShots];
+  const type=cameraPhotoType,visitId=cameraVisitId;
   stopCamera();
-  $("modalRoot").innerHTML=`<div class="modal"><div class="sheet"><h3>Envoi des photos</h3><div id="uploadProgress" class="sub">Préparation…</div></div></div>`;
-  try{
-    for(let i=0;i<shots.length;i++){
-      $("uploadProgress").textContent=`Photo ${i+1}/${shots.length}…`;
-      const file=new File([shots[i].blob],shots[i].name,{type:"image/jpeg"});
-      await uploadPhoto(file,cameraPhotoType,cameraVisitId);
+  $("modalRoot").innerHTML="";
+  toast(`${shots.length} photo${shots.length>1?"s":""} ajoutée${shots.length>1?"s":""} · envoi en arrière-plan`);
+
+  // L'utilisateur récupère immédiatement le formulaire.
+  (async()=>{
+    try{
+      for(const shot of shots){
+        const file=new File([shot.blob],shot.name,{type:"image/jpeg"});
+        await uploadPhoto(file,type,visitId);
+      }
+      shots.forEach(s=>s.url&&URL.revokeObjectURL(s.url));
+      await refreshNetworkBadge();
+    }catch(e){
+      console.warn("Ajout photos arrière-plan",e);
+      toast("Certaines photos restent en attente de synchronisation");
     }
-    shots.forEach(s=>s.url&&URL.revokeObjectURL(s.url));
-    $("modalRoot").innerHTML="";
-    toast(`${shots.length} photo${shots.length>1?"s":""} ajoutée${shots.length>1?"s":""}`);
-    await jobDetail(state.current);
-  }catch(e){
-    $("modalRoot").innerHTML="";
-    alert(e.message);
-  }
+  })();
 }
 
 function pickGalleryFromCamera(){
@@ -833,21 +994,19 @@ function pickGallery(type,visitId){
   input.type="file";
   input.accept="image/*";
   input.multiple=true;
-  input.onchange=async()=>{
+  input.onchange=()=>{
     const files=[...input.files];
     if(!files.length)return;
-    openModal(`<h3>Envoi des photos</h3><div id="uploadProgress" class="sub">Préparation…</div>`);
-    try{
-      for(let i=0;i<files.length;i++){
-        $("uploadProgress").textContent=`Photo ${i+1}/${files.length}…`;
-        await uploadPhoto(files[i],type,visitId);
+    toast(`${files.length} photo${files.length>1?"s":""} ajoutée${files.length>1?"s":""} · envoi en arrière-plan`);
+    (async()=>{
+      try{
+        for(const file of files)await uploadPhoto(file,type,visitId);
+        await refreshNetworkBadge();
+      }catch(e){
+        console.warn("Galerie arrière-plan",e);
+        toast("Certaines photos restent en attente de synchronisation");
       }
-      closeModal();
-      toast(`${files.length} photo${files.length>1?"s":""} ajoutée${files.length>1?"s":""}`);
-      await jobDetail(state.current);
-    }catch(e){
-      closeModal();alert(e.message);
-    }
+    })();
   };
   input.click();
 }
@@ -864,14 +1023,12 @@ async function compressImage(file){
 }
 
 async function uploadPhoto(file,type,visitId){
-  const blob=await compressImage(file),mime=blob.type||file.type||"image/jpeg";
-  if(!navigator.onLine||String(visitId||"").startsWith("local-")){await offQueuePhoto(new File([blob],file.name||`photo-${Date.now()}.jpg`,{type:mime}),type,visitId);return}
-  try{
-    const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:type,mime_type:mime});
-    const up=await storageClient.storage.from("technik-interventions").uploadToSignedUrl(sign.path,sign.token,blob,{contentType:mime});if(up.error)throw up.error;
-    await api("register_photo",{visit_id:visitId,photo_type:type,storage_path:sign.path,original_filename:file.name||`photo-${Date.now()}.jpg`,mime_type:mime,file_size_bytes:blob.size})
-  }catch(e){if(offNetworkError(e)){await offQueuePhoto(new File([blob],file.name||`photo-${Date.now()}.jpg`,{type:mime}),type,visitId);return}throw e}
+  // Toujours local d'abord : le formulaire n'attend jamais l'upload réseau.
+  const rec=await offQueuePhoto(file,type,visitId);
+  if(navigator.onLine)scheduleBackgroundPhotoSync(80);
+  return {queued:true,id:rec.id};
 }
+
 async function deletePhoto(id){
   if(!confirm("Supprimer cette photo ?"))return;
   if(String(id).startsWith("local-photo-")){await offDelete("photos",id);state.currentDetail.photos=(state.currentDetail.photos||[]).filter(p=>String(p.id)!==String(id));await offCacheApi("job_detail",{job_id:state.current},state.currentDetail);toast("Photo locale supprimée");renderDetail();await refreshNetworkBadge();return}
