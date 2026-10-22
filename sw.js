@@ -1,20 +1,42 @@
-const CACHE='dl-technik-v3-8';
-const CORE=['./','./index.html','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png','./icons/icon-512-maskable.png','./apple-touch-icon.png','./favicon-32x32.png','./favicon-16x16.png'];
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));
-self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
-self.addEventListener('fetch',e=>{
-  if(e.request.method!=='GET') return;
-  const u=e.request.url;
-  if(u.includes('/functions/v1/')) return;
-  if(u.includes('/storage/v1/')){
-    e.respondWith(caches.match(e.request).then(cached=>{
-      const fresh=fetch(e.request).then(r=>{if(r.ok){const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy)).catch(()=>{})}return r}).catch(()=>cached);
+// DL TECHNIK V3.9 — installation sûre, aucun accès aux brouillons IndexedDB.
+const CACHE='dl-technik-v3-9';
+const CORE=['./','./index.html','./manifest.webmanifest','./dl-technik-logo.png',
+  './icon-192.png','./icon-512.png','./icon-512-maskable.png',
+  './apple-touch-icon.png','./favicon-32x32.png','./favicon-16x16.png'];
+self.addEventListener('install',event=>event.waitUntil(
+  caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting())
+));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{
+  const keys=await caches.keys();
+  await Promise.all(keys.filter(k=>k.startsWith('dl-technik-')&&k!==CACHE).map(k=>caches.delete(k)));
+  await self.clients.claim();
+})()));
+self.addEventListener('fetch',event=>{
+  const req=event.request;
+  if(req.method!=='GET')return;
+  const url=new URL(req.url);
+  // Never cache API calls; never interfere with write traffic or signatures.
+  if(url.pathname.includes('/functions/v1/'))return;
+  const sameOrigin=url.origin===self.location.origin;
+  if(sameOrigin&&CORE.some(p=>new URL(p,self.registration.scope).href===url.href)){
+    event.respondWith(caches.match(req).then(cached=>{
+      const fresh=fetch(req).then(res=>{if(res.ok){const c=res.clone();caches.open(CACHE).then(k=>k.put(req,c)).catch(()=>{})}return res}).catch(()=>null);
       return cached||fresh;
-    }));
-    return;
+    }));return;
   }
-  e.respondWith(caches.match(e.request).then(cached=>{
-    const fresh=fetch(e.request).then(r=>{if(r.ok){const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy)).catch(()=>{})}return r}).catch(()=>null);
-    return cached||fresh||caches.match('./index.html');
-  }));
+  event.respondWith((async()=>{
+    const cached=await caches.match(req);
+    if(cached){
+      event.waitUntil(fetch(req).then(res=>{if(res.ok||res.type==='opaque')return caches.open(CACHE).then(c=>c.put(req,res.clone()))}).catch(()=>{}));
+      return cached;
+    }
+    try{
+      const res=await fetch(req);
+      if(res.ok||res.type==='opaque')event.waitUntil(caches.open(CACHE).then(c=>c.put(req,res.clone())).catch(()=>{}));
+      return res;
+    }catch(e){
+      if(req.mode==='navigate')return (await caches.match('./index.html'))||Response.error();
+      return Response.error();
+    }
+  })());
 });
