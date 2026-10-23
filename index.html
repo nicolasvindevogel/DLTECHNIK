@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.4</title>
+<title>DL TECHNIK · V3.9.1</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -287,10 +287,13 @@ html,body{background:#f6f8f7;color:#17211c}
 .camera-zoom-range{max-width:130px;min-width:75px;accent-color:white}
 .camera-device{min-width:130px;max-width:90%;padding:6px;border-radius:8px;background:#183426;color:#fff;border:1px solid #ffffff55;font-size:11px}
 .camera-top,.camera-bottom{box-sizing:border-box;width:100%}
-.delete-draft-action{display:none;margin-top:12px;border-top:1px solid #e6e9e6;padding-top:11px}
-.delete-draft-action.allowed{display:block}
-.delete-draft-btn{background:transparent;border:1px solid #bd453c;color:#ad2d24;border-radius:10px;padding:9px 13px;font-size:11px;font-weight:700}
-.delete-draft-action small{display:block;color:#66736c;font-size:9px;margin-top:5px;line-height:1.5}
+.delete-draft-action{margin-top:12px;border-top:1px solid #e6e9e6;padding-top:11px}
+.delete-draft-btn{background:transparent;border:1px solid #bd453c;color:#ad2d24;border-radius:10px;padding:9px 13px;font-size:11px;font-weight:700;max-width:100%;min-height:40px}
+.delete-draft-btn:disabled{opacity:.55;cursor:not-allowed}
+.delete-draft-action small{display:block;color:#66736c;font-size:10px;margin-top:8px;line-height:1.5}
+.delete-draft-action .delete-check-btn{margin-top:9px;font-size:10px;border:1px solid #dfe7e2;background:#fff;border-radius:8px;padding:6px 9px;color:#34473b}
+.delete-draft-action .delete-state-allowed{color:#167044}
+.delete-draft-action .delete-state-warning{color:#a35518}
 .photo.failed-photo:after{content:"Nouvelle tentative";position:absolute;left:4px;bottom:4px;background:#b42318;color:#fff;border-radius:5px;padding:3px;font-size:8px}
 @media(orientation:landscape) and (max-height:600px){
  .camera-modal{display:grid;grid-template-columns:minmax(0,1fr) clamp(170px,30vw,300px);grid-template-rows:auto minmax(0,1fr)}
@@ -330,6 +333,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="toast" class="toast"></div>
 
 <script>
+/* DL TECHNIK V3.9.1 — GitHub Pages · bouton d’annulation visible avant le premier rapport. */
 const CFG={url:"https://ccboibbhsztcupfcrndx.supabase.co",key:"sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",fn:"dl-technik-auth"};
 const API=CFG.url+"/functions/v1/"+CFG.fn;
 const TOKEN_KEY="dl_technik_device_token_v1";
@@ -405,6 +409,7 @@ async function refreshNetworkBadge(){
 }
 function offNetworkError(e){const s=String(e?.message||e||"").toLowerCase();return !navigator.onLine||abortIsNetworkError(e)||s.includes("failed to fetch")||s.includes("networkerror")||s.includes("load failed")||s.includes("timeout")||s.includes("timed out")||s.includes("abort")}
 function offQueueReport(submit=false){
+  if(deletingJobIds.has(String(state.current)))return Promise.reject(new Error("Annulation en cours"));
   // Capture form and job before the asynchronous queue: navigating to another
   // intervention must NEVER write yesterday's inputs to a different job.
   const v=currentOpenVisit(),jobId=state.current;
@@ -509,6 +514,7 @@ async function callRemotePhotoExists(p,visitId){
   return (detail.photos||[]).find(x=>x.storage_path===p.storage_path&&String(x.visit_id)===String(visitId));
 }
 async function syncOneQueuedPhoto(p,visitId){
+  if(deletingJobIds.has(String(p.job_id)))return false;
   let current=await offGet("photos",p.id);
   if(!current||current.next_retry_at>Date.now()||!isOwnQueuedItem(current))return false;
   if(current.sync_state==="uploading")current={...current,sync_state:"local"}; // crash recovery
@@ -558,6 +564,7 @@ async function completeQueuedPhoto(p,remote){
   }
 }
 async function syncOneQueuedReport(r){
+  if(deletingJobIds.has(String(r.job_id)))return;
   if(!isOwnQueuedItem(r)||r.next_retry_at>Date.now()||!navigator.onLine)return;
   const originalUpdated=r.updated_at;
   let visitId=r.visit_id;
@@ -883,9 +890,26 @@ function renderDetail(){
       ${!["report_received","validated","archived","cancelled"].includes(j.status)?`<div class="team-actions"><span class="sub">Équipe affectée à cette intervention</span><button class="light" onclick="openAddTechnicianModal()">＋ Ajouter un technicien</button></div>`:""}
     </div><div class="section-title">Travail demandé</div><div class="request">${esc(j.description||"Aucune consigne complémentaire.")}</div></div>
     ${open?renderActiveVisit(open,d):otherOpen?`<div class="card"><div class="section-title">Rapport commun</div><div class="report-owner-note">Un collègue affecté à cette intervention a déjà commencé le rapport. Un seul rapport est prévu pour toute l'équipe. Vous pouvez consulter l'intervention mais le rapport en cours reste sous la responsabilité de son rédacteur.</div></div>`:renderVisitAction(j,latest)}
+    ${renderDeleteUnsentAction(d)}
     ${d.visits?.length?`<div class="card"><div class="section-title">Historique des passages</div><div class="timeline">${d.visits.map(v=>renderVisitHistory(v)).join("")}</div></div>`:""}
   `;
-  if(open){bindCheckChanges();bindReportAutoSave();checkCanDeleteUnsent().catch(console.warn)}
+  if(open){bindCheckChanges();bindReportAutoSave()}
+  if($("deleteDraftAction"))checkCanDeleteUnsent().catch(console.warn);
+}
+function renderDeleteUnsentAction(detail){
+  // Visible BEFORE filling out a report. Never grant permission based on the UI.
+  // Only a valid server-side ownership + status check can enable deletion.
+  const j=detail?.job;
+  if(!j||!["draft","assigned","in_progress"].includes(j.status))return "";
+  if((detail.visits||[]).some(v=>v.submitted_at||["submitted","validated","archived"].includes(v.status)))return "";
+  return `<div class="card"><div class="section-title">Intervention créée par erreur ?</div>
+    <p class="sub">Seules les interventions créées depuis DL TECHNIK et jamais envoyées à WAPILOT peuvent être annulées. Une validation du serveur est obligatoire.</p>
+    <div id="deleteDraftAction" class="delete-draft-action">
+      <button id="deleteUnsentBtn" class="delete-draft-btn" disabled onclick="deleteUnsentIntervention()">Supprimer cette intervention</button>
+      <small id="deleteUnsentStatus" role="status" aria-live="polite">Vérification de l'autorisation Supabase…</small>
+      <button class="delete-check-btn" onclick="checkCanDeleteUnsent()">↻ Vérifier à nouveau</button>
+    </div>
+  </div>`;
 }
 function renderVisitAction(j,latest){
   if(j.status==="report_received")return `<div class="card"><div class="section-title">Rapport envoyé</div><div class="locked-report"><b>✓ Rapport transmis à WAPILOT</b><br>Le personnel technique peut encore le consulter, mais il n’est plus modifiable. Une correction éventuelle doit être faite depuis WAPILOT.</div></div>`;
@@ -989,7 +1013,6 @@ function renderActiveVisit(v,d){
     </div>
     <div class="field"><label>REMARQUES</label><textarea id="remarks" placeholder="Difficulté rencontrée, suivi nécessaire…">${esc(v.remarks||"")}</textarea></div>
     <div class="footer-actions"><button class="light" onclick="saveVisit()">Enregistrer</button><button class="primary" onclick="finishVisit()">Envoyer rapport</button></div>
-    <div id="deleteDraftAction" class="delete-draft-action"><button class="delete-draft-btn" onclick="deleteUnsentIntervention()">Supprimer une intervention créée par erreur</button><small>Disponible uniquement pour une intervention créée depuis DL TECHNIK, non envoyée et dont la suppression est autorisée par WAPILOT.</small></div>
   </div>`;
 }
 function photoGrid(arr,type,visitId){
@@ -1203,32 +1226,79 @@ async function deletePhoto(id,alreadyConfirmed=false){
   }
   try{await api("delete_photo",{photo_id:id});toast("Photo supprimée");await jobDetail(state.current)}catch(e){alert(e.message)}
 }
+const deletingJobIds=new Set();
+let deletePermissionRequest=0;
+function setDeleteStatus(message,enabled=false,warning=false){
+  const btn=$("deleteUnsentBtn"),status=$("deleteUnsentStatus");
+  if(btn)btn.disabled=!enabled;
+  if(status){status.textContent=message;status.classList.toggle("delete-state-allowed",enabled);status.classList.toggle("delete-state-warning",warning)}
+}
+async function deleteLocalState(jobId){
+  await offDelete("reports",jobId);
+  const photos=(await offAll("photos")).filter(p=>String(p.job_id)===String(jobId));
+  for(const p of photos)await offDelete("photos",p.id);
+  await Promise.all([
+    offDelete("kv",offCacheKey("job_detail",{job_id:jobId})),
+    offDelete("kv",offCacheKey("list_jobs",{mode:"active"})),
+    offDelete("kv",offCacheKey("list_jobs",{mode:"completed"})),
+    offDelete("kv",offCacheKey("dashboard",{}))
+  ]);
+}
 async function checkCanDeleteUnsent(){
-  const el=$("deleteDraftAction");if(!el||!state.current||!navigator.onLine)return;
+  const jobId=state.current,el=$("deleteDraftAction");
+  if(!el||!jobId)return;
+  const request=++deletePermissionRequest;
+  setDeleteStatus("Vérification de l'autorisation Supabase…");
+  if(!navigator.onLine){setDeleteStatus("Connexion nécessaire pour vérifier le droit de suppression.",false,true);return}
+  if(deletingJobIds.has(String(jobId))){setDeleteStatus("Annulation en cours…");return}
   try{
-    const r=await api("can_delete_unsubmitted_job",{job_id:state.current},{timeoutMs:6000});
-    if(state.current===r.job_id&&r.allowed)el.classList.add("allowed");
-  }catch(e){/* Unsupported deployed API => do not offer deletion. */}
+    const [report,photos]=await Promise.all([offGet("reports",jobId),offAll("photos")]);
+    if(state.current!==jobId||request!==deletePermissionRequest)return;
+    if(report?.submit){setDeleteStatus("Ce rapport a été marqué pour envoi : suppression bloquée par sécurité.",false,true);return}
+    if(offlineSyncRunning||photos.some(p=>String(p.job_id)===String(jobId)&&p.sync_state==="uploading")){
+      setDeleteStatus("Synchronisation en cours : réessayez une fois les transferts terminés.",false,true);return;
+    }
+    const r=await api("can_delete_unsubmitted_job",{job_id:jobId},{skipOffline:true,timeoutMs:6000});
+    if(state.current!==jobId||request!==deletePermissionRequest||!$("deleteDraftAction"))return;
+    if(String(r?.job_id)!==String(jobId)||r?.allowed!==true){
+      setDeleteStatus(r?.reason||"Suppression non autorisée : intervention déjà transmise, créée ailleurs ou attribuée à un autre technicien.",false,true);
+      return;
+    }
+    setDeleteStatus("Autorisation confirmée : intervention non envoyée, suppression possible.",true);
+  }catch(e){
+    if(state.current===jobId&&request===deletePermissionRequest){
+      setDeleteStatus("Suppression indisponible : activer les deux actions dans la fonction Supabase « dl-technik-auth ». Réessayez après activation.",false,true);
+    }
+  }
 }
 async function deleteUnsentIntervention(){
-  const jobId=state.current;if(!jobId)return;
+  const jobId=state.current,btn=$("deleteUnsentBtn");
+  if(!jobId||!btn||btn.disabled||deletingJobIds.has(String(jobId)))return;
   if(offlineSyncRunning)return alert("Une synchronisation est en cours. Réessayez une fois son état confirmé.");
   if(!navigator.onLine)return alert("La suppression exige une confirmation du serveur. Reconnectez-vous avant de supprimer.");
-  const report=await offGet("reports",jobId);
-  if(report?.submit)return alert("Le rapport est en cours d'envoi ou son état est incertain. Suppression interdite.");
-  const photos=(await offAll("photos")).filter(p=>p.job_id===jobId);
-  if(photos.some(p=>p.sync_state==="uploading"))return alert("Des photos sont en cours de transfert. Suppression impossible pour le moment.");
-  if(!confirm("Supprimer cette intervention créée depuis DL TECHNIK ? Seule une intervention non envoyée peut être annulée. Cette opération est irréversible depuis le téléphone."))return;
+  if(!confirm("Annuler cette intervention créée depuis DL TECHNIK ? Le serveur doit confirmer qu'aucun rapport n'a été envoyé. Les photos et le brouillon locaux seront supprimés seulement après confirmation."))return;
+  deletingJobIds.add(String(jobId));
+  setDeleteStatus("Demande d'annulation en cours…");
   try{
-    // Permission + state must be rechecked atomically on the server.
+    if(reportSaveTimer){clearTimeout(reportSaveTimer);reportSaveTimer=null}
+    // Drain writes already queued before touching the local data.
+    await localReportWrites;
+    const [report,photos]=await Promise.all([offGet("reports",jobId),offAll("photos")]);
+    if(report?.submit||offlineSyncRunning||photos.some(p=>String(p.job_id)===String(jobId)&&p.sync_state==="uploading"))
+      throw new Error("Rapport en cours d'envoi ou transfert actif. Vérifiez son état puis réessayez.");
+    // The SERVER performs the final permission and concurrency check.
     const cancelled=await api("cancel_unsubmitted_job",{job_id:jobId},{skipOffline:true,timeoutMs:12000});
-    if(cancelled.ok!==true||cancelled.job_id!==jobId)throw new Error("Confirmation de suppression non reçue du serveur.");
-    // Only after the server confirms do we discard the local draft and media.
-    await offDelete("reports",jobId);
-    for(const p of photos)await offDelete("photos",p.id);
-    await offDelete("kv",offCacheKey("job_detail",{job_id:jobId}));
+    if(cancelled.ok!==true||String(cancelled.job_id)!==String(jobId))throw new Error("Confirmation d'annulation non reçue du serveur.");
+    await deleteLocalState(jobId);
     toast("Intervention annulée");await go("jobs");
-  }catch(e){alert("Suppression non effectuée : "+e.message+". Les données locales ont été conservées.")}
+  }catch(e){
+    // Never discard a single local photo if the response is missing or ambiguous.
+    alert("Suppression non confirmée : "+e.message+". Données locales conservées. Si la connexion s'est coupée, contrôlez l'état de l'intervention avant de réessayer.");
+  }finally{
+    deletingJobIds.delete(String(jobId));
+    if(state.current===jobId&&$("deleteDraftAction"))checkCanDeleteUnsent().catch(console.warn);
+    scheduleBackgroundPhotoSync(1000);
+  }
 }
 
 
