@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.3</title>
+<title>DL TECHNIK · V3.9.4</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -49,6 +49,9 @@ button{cursor:pointer}
 .job-actions{display:flex;justify-content:flex-end;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
 .job-list-delete{border:1px solid #d8aaa5;background:#fff8f7;color:#a5271d;border-radius:10px;padding:9px 12px;font-size:11px;font-weight:800;min-height:40px;touch-action:manipulation}
 .job-list-delete:disabled{opacity:.48;cursor:not-allowed}
+.syndic-note{padding:12px;background:#f4f8fc;border:1px solid #d4e3ef;border-radius:12px}
+.syndic-note label{color:#155b89}
+.syndic-note-hint{font-size:10px;color:#52677b;line-height:1.5;margin-top:7px}
 .field{margin-bottom:12px}.field label{display:block;font-size:9.5px;font-weight:900;color:#475467;margin:0 0 5px}.field input,.field textarea,.field select{width:100%;border:1px solid #d9dee7;background:#fff;border-radius:12px;padding:11px;color:var(--ink);outline:none}.field textarea{resize:vertical;min-height:84px}.field input:focus,.field textarea:focus,.field select:focus{border-color:#9cabbf;box-shadow:0 0 0 3px rgba(15,23,42,.05)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:9px}.switch{display:flex;background:#edf0f3;border-radius:13px;padding:3px;gap:3px;margin-bottom:14px}.switch button{flex:1;border:0;background:transparent;border-radius:10px;padding:9px;font-size:10.5px;font-weight:850;color:var(--muted)}.switch button.on{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(15,23,42,.08)}
 .searchbox{position:relative}.results{position:absolute;z-index:10;left:0;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);max-height:260px;overflow:auto}.result{padding:10px 11px;border-bottom:1px solid #f0f1f3;font-size:10.5px}.result:last-child{border:0}.result b{display:block;font-size:11px}
@@ -1024,7 +1027,11 @@ function renderActiveVisit(v,d){
       </div>
       <div class="duration-auto"><span>Temps passé calculé automatiquement</span><b id="autoDuration">${formatAutoDuration(currentMinutes||calcVisitMinutes(arrival,departure))}</b></div>
     </div>
-    <div class="field"><label>REMARQUES</label><textarea id="remarks" placeholder="Difficulté rencontrée, suivi nécessaire…">${esc(v.remarks||"")}</textarea></div>
+    <div class="field"><label>REMARQUES SUR LE RAPPORT</label><textarea id="remarks" placeholder="Observations concernant le travail effectué…">${esc(v.remarks||"")}</textarea></div>
+    <div class="field syndic-note"><label for="syndicRemarks">REMARQUES À COMMUNIQUER AU SYNDIC</label>
+      <textarea id="syndicRemarks" maxlength="5000" placeholder="Ex. : ampoule grillée au 2e étage, fuite constatée, porte à vérifier…">${esc(v.syndic_remarks||"")}</textarea>
+      <div class="syndic-note-hint">Lors de l'envoi du rapport, une tâche sera automatiquement créée dans WAPILOT si ce champ est renseigné. En attendant, votre texte reste enregistré sur le téléphone.</div>
+    </div>
     <div class="footer-actions"><button class="light" onclick="saveVisit()">Enregistrer</button><button class="primary" onclick="finishVisit()">Envoyer rapport</button></div>
   </div>`;
 }
@@ -1033,13 +1040,13 @@ function photoGrid(arr,type,visitId){
 }
 function renderVisitHistory(v){
   const mins=v.manual_duration_minutes??v.duration_minutes;
-  return `<div class="visit"><h4>${fmtDate(v.visit_date)} · ${v.status==="submitted"?"Rapport envoyé":v.status==="validated"?"Validé":statusLabel(v.status)}</h4><p>⏱ ${fmtMinutes(mins)}</p>${v.work_done?`<p><b>Travaux :</b> ${esc(v.work_done)}</p>`:""}${v.remarks?`<p><b>Remarques :</b> ${esc(v.remarks)}</p>`:""}</div>`;
+  return `<div class="visit"><h4>${fmtDate(v.visit_date)} · ${v.status==="submitted"?"Rapport envoyé":v.status==="validated"?"Validé":statusLabel(v.status)}</h4><p>⏱ ${fmtMinutes(mins)}</p>${v.work_done?`<p><b>Travaux :</b> ${esc(v.work_done)}</p>`:""}${v.remarks?`<p><b>Remarques :</b> ${esc(v.remarks)}</p>`:""}${v.syndic_remarks?`<p><b>Signalement au syndic :</b> ${esc(v.syndic_remarks)}</p>`:""}</div>`;
 }
 async function prepareVisit(){
   const d=state.currentDetail;if(!d)return;
   if(currentOpenVisit()){renderDetail();return}
   if(!d.visits)d.visits=[];
-  const local={id:`local-visit-${state.current}`,job_id:state.current,technician_id:currentTechnicianId(),visit_date:new Date().toISOString().slice(0,10),status:"draft",can_edit:true,work_done:"",materials_used:"",remarks:"",started_at:null,ended_at:null,duration_minutes:0};
+  const local={id:`local-visit-${state.current}`,job_id:state.current,technician_id:currentTechnicianId(),visit_date:new Date().toISOString().slice(0,10),status:"draft",can_edit:true,work_done:"",materials_used:"",remarks:"",syndic_remarks:"",started_at:null,ended_at:null,duration_minutes:0};
   d.visits.unshift(local);
   try{await offCacheApi("job_detail",{job_id:state.current},d);renderDetail();toast("Rapport prêt · enregistré localement")}
   catch(e){alert("Brouillon local impossible : "+e.message)}
@@ -1055,6 +1062,7 @@ function visitPayload(){
     work_done:$("workDone")?.value||"",
     materials_used:$("materials")?.value||"",
     remarks:$("remarks")?.value||"",
+    syndic_remarks:$("syndicRemarks")?.value||"",
     started_at:visitIsoFromTime(date,arrival),
     ended_at:visitIsoFromTime(date,departure)
   }
@@ -1062,7 +1070,7 @@ function visitPayload(){
 async function saveChecks(){await offQueueReport(false)}
 function bindCheckChanges(){document.querySelectorAll("[data-check]").forEach(e=>e.addEventListener("change",()=>offQueueReport(false).catch(console.warn)))}
 function bindReportAutoSave(){
-  for(const el of document.querySelectorAll("#workDone,#materials,#remarks,#arrivalTime,#departureTime")){
+  for(const el of document.querySelectorAll("#workDone,#materials,#remarks,#syndicRemarks,#arrivalTime,#departureTime")){
     el.addEventListener("input",()=>{
       if(reportSaveTimer)clearTimeout(reportSaveTimer);
       reportSaveTimer=setTimeout(()=>{reportSaveTimer=null;offQueueReport(false).catch(console.warn)},400);
