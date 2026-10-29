@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.7</title>
+<title>DL TECHNIK · V3.9.8</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -344,7 +344,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.7</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.8</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <main id="content" class="content"></main>
@@ -372,7 +372,7 @@ html,body{background:#f6f8f7;color:#17211c}
 .syndic-note .section-title{font-size:11px;color:#155b89}
 </style>
 <script>
-/* DL TECHNIK V3.9.7 — photos signalement et synchronisation résiliente iOS/VPN. */
+/* DL TECHNIK V3.9.8 — photos signalement et synchronisation résiliente iOS/VPN. */
 const CFG={url:"https://ccboibbhsztcupfcrndx.supabase.co",key:"sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",fn:"dl-technik-auth"};
 const API=CFG.url+"/functions/v1/"+CFG.fn;
 const TOKEN_KEY="dl_technik_device_token_v1";
@@ -441,7 +441,24 @@ async function offCount(store){const d=await offOpen();return new Promise((resol
 function offCacheKey(action,payload={}){return `api:${action}:${JSON.stringify(payload,Object.keys(payload).sort())}`}
 async function offCacheApi(action,payload,value){try{await offPut("kv",offCacheKey(action,payload),{ts:Date.now(),value})}catch(e){}}
 async function offReadApi(action,payload){try{return (await offGet("kv",offCacheKey(action,payload)))?.value||null}catch{return null}}
-async function offPendingCount(){const [r,p]=await Promise.all([offAll("reports"),offAll("photos")]);return r.filter(isOwnQueuedItem).length+p.filter(isOwnQueuedItem).length}
+// V3.9.8 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
+// Les photos et leur contenu restent inchangés dans IndexedDB (version 1).
+async function offPhotoMetas(){
+  const d=await offOpen();
+  return new Promise((resolve,reject)=>{
+    const tx=d.transaction("photos","readonly"),req=tx.objectStore("photos").openCursor();
+    const rows=[];
+    req.onsuccess=()=>{
+      const cursor=req.result;
+      if(!cursor){resolve(rows);return}
+      const {blob,...metadata}=cursor.value;
+      rows.push(metadata);cursor.continue();
+    };
+    req.onerror=()=>reject(req.error||new Error("Lecture des photos impossible"));
+    tx.onabort=()=>reject(tx.error||new Error("Stockage photos indisponible"));
+  });
+}
+async function offPendingCount(){const [r,p]=await Promise.all([offAll("reports"),offPhotoMetas()]);return r.filter(isOwnQueuedItem).length+p.filter(isOwnQueuedItem).length}
 async function refreshNetworkBadge(){
   const e=$("network");if(!e)return;
   // count() doesn't read every photo Blob into memory on slow smartphones.
@@ -538,29 +555,37 @@ async function offHydrateLocalPhotos(detail){
       for(const c of pending.checks){const existing=detail.checks.find(x=>x.id===c.id);if(existing)existing.checked=c.checked}
     }
   }
-  const queued=(await offAll("photos")).filter(p=>String(p.job_id)===jobId&&isOwnQueuedItem(p));
+  const queued=(await offPhotoMetas()).filter(p=>String(p.job_id)===jobId&&isOwnQueuedItem(p));
   detail.photos=(detail.photos||[]).filter(p=>!String(p.id).startsWith("local-photo-"));
   const editable=detail.visits.find(v=>["draft","in_progress"].includes(v.status)&&String(v.technician_id)===String(pending?.technician_id||me?.id));
   for(const p of queued){
+    // On lit uniquement la photo du rapport actuellement ouvert.
+    const current=await offGet("photos",p.id);
+    if(!current?.blob)continue;
     const visitId=p.visit_id||pending?.visit_id||editable?.id||p.local_visit_id||`local-visit-${jobId}`;
-    detail.photos.push({id:p.id,visit_id:visitId,photo_type:p.photo_type,signed_url:URL.createObjectURL(p.blob),_offline:true,_syncing:p.sync_state==="uploading",_error:p.sync_state==="error"});
+    detail.photos.push({id:p.id,visit_id:visitId,photo_type:p.photo_type,signed_url:URL.createObjectURL(current.blob),_offline:true,_syncing:p.sync_state==="uploading",_error:p.sync_state==="error"});
   }
   return detail;
 }
 async function updatePhotoSyncPanel(){
   const el=$("photoSyncPanel");if(!el||!state.current)return;
-  const items=(await offAll("photos")).filter(p=>isOwnQueuedItem(p)&&String(p.job_id)===String(state.current));
+  const items=(await offPhotoMetas()).filter(p=>isOwnQueuedItem(p)&&String(p.job_id)===String(state.current));
   if(!items.length){el.innerHTML='';return}
   const failed=items.filter(p=>p.sync_state==="error");
   const uploading=items.filter(p=>p.sync_state==="uploading").length;
   const details=failed.length?` · ${failed.length} à relancer`:uploading?' · transfert en cours':'';
   const last=failed.find(p=>p.last_error)?.last_error;
-  el.innerHTML=`<div><b>📷 ${items.length} photo${items.length>1?'s':''} en attente de confirmation${details}</b><p>Les fichiers restent sur ce téléphone jusqu'à confirmation du serveur. Gardez DL TECHNIK au premier plan pendant l'envoi.</p>${last?`<small>Dernière erreur : ${esc(last)}</small>`:''}</div><button class="light" type="button" onclick="retryPendingPhotoUploads()">↻ Relancer l'envoi</button>`;
+  const stages=failed.find(p=>p.last_error)?.last_stage||"";
+  el.innerHTML=`<div><b>📷 ${items.length} photo${items.length>1?'s':''} en attente de confirmation${details}</b><p>Les fichiers restent sur ce téléphone jusqu'à confirmation du serveur. Gardez DL TECHNIK au premier plan pendant l'envoi.</p>${last?`<small>Dernière erreur${stages?' ('+esc(stages)+')':''} : ${esc(last)}</small>`:''}</div><button class="light" type="button" onclick="retryPendingPhotoUploads()">↻ Relancer l'envoi</button>`;
 }
 async function retryPendingPhotoUploads(){
   if(!navigator.onLine){toast("Aucun réseau détecté — photos conservées sur le téléphone");return}
-  const items=(await offAll("photos")).filter(p=>isOwnQueuedItem(p)&&String(p.job_id)===String(state.current));
-  for(const p of items)if(p.sync_state!=="uploading")await offPut("photos",undefined,{...p,next_retry_at:0,sync_state:"local"});
+  if(offlineSyncRunning){toast("Transfert déjà en cours — photos conservées");return}
+  const items=(await offPhotoMetas()).filter(p=>isOwnQueuedItem(p)&&String(p.job_id)===String(state.current));
+  for(const p of items){
+    const actual=await offGet("photos",p.id);
+    if(actual)await offPut("photos",undefined,{...actual,next_retry_at:0,sync_state:"local"});
+  }
   toast("Nouvelle tentative de synchronisation des photos");
   await updatePhotoSyncPanel();
   scheduleBackgroundPhotoSync(100);
@@ -570,7 +595,7 @@ async function markFailed(store,rec,err){
   if(!current)return;
   if(store==="photos"){const el=document.querySelector(`[data-photo-id="${CSS.escape(current.id)}"]`);if(el){el.classList.add("failed-photo");el.classList.remove("syncing-photo")}}
   const attempts=(current.attempts||0)+1;
-  await offPut(store,undefined,{...current,attempts,next_retry_at:Date.now()+syncBackoff(attempts),sync_state:"error",last_error:String(err?.message||err).slice(0,300)});
+  await offPut(store,undefined,{...current,last_stage:rec.last_stage||"",attempts,next_retry_at:Date.now()+syncBackoff(attempts),sync_state:"error",last_error:String(err?.message||err).slice(0,300)});
   if(store==="photos")updatePhotoSyncPanel().catch(()=>{});
 }
 async function callRemotePhotoExists(p,visitId){
@@ -586,6 +611,7 @@ async function syncOneQueuedPhoto(p,visitId){
   // Ne jamais ignorer les photos en 2G : le VPN et Safari peuvent rapporter
   // un débit trompeur. Réessayer avec compression et délai prolongé.
   if(!navigator.onLine)return false;
+  let stage="préparation";
   try{
     await offPut("photos",undefined,{...current,sync_state:"uploading"});
     updatePhotoSyncPanel().catch(()=>{});
@@ -597,17 +623,36 @@ async function syncOneQueuedPhoto(p,visitId){
     }
     // Garder le fichier original en IndexedDB tant que l'envoi n'est PAS confirmé.
     // La compression se fait uniquement pour le transfert, jamais à la capture.
+    stage="lecture / compression locale";
     const sourceMime=current.mime_type||"image/jpeg";
     const sourceFile=new File([current.blob],current.original_filename||"photo.jpg",{type:sourceMime});
     const file=await compressImage(sourceFile);
     const mime=file.type||sourceMime;
     const remoteType=current.photo_type==="syndic"?"other":current.photo_type;
     if(!current.storage_path||!current.signed_token){
+      stage="autorisation serveur";
       const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:remoteType,mime_type:mime},{skipOffline:true,timeoutMs:20000});
       current.storage_path=sign.path;current.signed_token=sign.token;
       await offPut("photos",undefined,current);
     }
-    const up=await storageClient.storage.from("technik-interventions").uploadToSignedUrl(current.storage_path,current.signed_token,file,{contentType:mime});
+    stage="transfert Storage";
+    // WebKit/iOS : éviter les FormData contenant un File issu d'IndexedDB.
+    // Supabase Storage JS accepte Uint8Array et l'envoie en corps binaire brut.
+    // Sur Android, conserver la méthode éprouvée de V3.9.7.
+    const ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||
+      (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+    let uploadBody=file;
+    if(ios){
+      stage="lecture binaire iOS";
+      const arrayBuffer=await file.arrayBuffer();
+      if(!arrayBuffer.byteLength)throw new Error("iOS : fichier image vide après lecture locale. Original conservé.");
+      uploadBody=new Uint8Array(arrayBuffer);
+    }
+    // cacheControl explicite : certaines versions storage-js produisent sinon
+    // un champ multipart cacheControl=undefined.
+    stage="transfert Storage";
+    const up=await storageClient.storage.from("technik-interventions")
+      .uploadToSignedUrl(current.storage_path,current.signed_token,uploadBody,{contentType:mime,cacheControl:"3600"});
     // Après une réponse perdue, le chemin reste identique ; 409 signifie déjà chargé.
     if(up.error&&!/already exists|duplicate|conflict|409/i.test(String(up.error.message||up.error))){
       if(/expired|jwt|unauthori|invalid token|403/i.test(String(up.error.message||up.error))){
@@ -616,11 +661,13 @@ async function syncOneQueuedPhoto(p,visitId){
       }
       throw new Error(`Transfert photo : ${String(up.error.message||up.error)}`);
     }
+    stage="confirmation de la photo";
     const result=await api("register_photo",{visit_id:visitId,photo_type:remoteType,storage_path:current.storage_path,original_filename:current.original_filename,mime_type:mime,file_size_bytes:file.size,caption:current.photo_type==="syndic"?SYNDIC_PHOTO_CAPTION:null},{skipOffline:true,timeoutMs:20000});
     await completeQueuedPhoto(current,{id:result.photo_id,visit_id:visitId,storage_path:current.storage_path});
     return true;
   }catch(err){
-    await markFailed("photos",current,err);
+    // Message court lisible dans le panneau, original conservé.
+    await markFailed("photos",{...current,last_stage:stage},err);
     return false;
   }
 }
@@ -652,11 +699,11 @@ async function syncOneQueuedReport(r){
     }
     await api("save_visit",{...r.payload,visit_id:visitId},{skipOffline:true,timeoutMs:10000});
     if(r.checks?.length)await api("save_checks",{visit_id:visitId,checks:r.checks},{skipOffline:true,timeoutMs:10000});
-    const pending=(await offAll("photos")).filter(p=>p.job_id===r.job_id);
+    const pending=(await offPhotoMetas()).filter(p=>p.job_id===r.job_id);
     for(const p of pending)await syncOneQueuedPhoto(p,visitId);
     // Keep the report queued until ALL photos have a real remote visit ID and
     // are acknowledged; otherwise a newly-created offline visit can orphan them.
-    if((await offAll("photos")).some(p=>p.job_id===r.job_id))return;
+    if((await offPhotoMetas()).some(p=>p.job_id===r.job_id))return;
     if(r.submit){
       // Retry of an uncertain finish is preceded by a server-state check.
       const d=await api("job_detail",{job_id:r.job_id},{skipOffline:true,timeoutMs:10000});
@@ -681,7 +728,7 @@ async function syncOfflineQueue(){
     // Tenter une photo à la fois, même sur réseau lent / VPN.
     const reports=(await offAll("reports")).filter(isOwnQueuedItem);
     for(const r of reports)await syncOneQueuedReport(r);
-    const remaining=(await offAll("photos")).filter(isOwnQueuedItem);
+    const remaining=(await offPhotoMetas()).filter(isOwnQueuedItem);
     for(const p of remaining){
       const visitId=p.visit_id||(await offGet("reports",p.job_id))?.visit_id;
       if(visitId)await syncOneQueuedPhoto(p,visitId);
@@ -1393,7 +1440,8 @@ async function compressImage(file){
     const blob=await new Promise(res=>canvas.toBlob(res,"image/jpeg",networkConstrained?.72:.78));
     if(!blob?.size)throw new Error("Image non décodable");
     // Pas d'intérêt à rendre un fichier déjà compressé plus lourd.
-    return blob.size<file.size?new File([blob],(file.name||"photo").replace(/\.[^.]+$/,"")+".jpg",{type:"image/jpeg"}):file;
+    const heic=/hei[cf]/i.test(file.type)||/\.hei[cf]$/i.test(file.name||"");
+    return (blob.size<file.size||heic)?new File([blob],(file.name||"photo").replace(/\.[^.]+$/,"")+".jpg",{type:"image/jpeg"}):file;
   }catch(e){console.warn("Compression non disponible, image originale conservée",e);return file}
   finally{bitmap?.close?.();if(localUrl)URL.revokeObjectURL(localUrl)}
 }
@@ -1419,7 +1467,7 @@ function setDeleteStatus(message,enabled=false,warning=false){
 }
 async function deleteLocalState(jobId){
   await offDelete("reports",jobId);
-  const photos=(await offAll("photos")).filter(p=>String(p.job_id)===String(jobId));
+  const photos=(await offPhotoMetas()).filter(p=>String(p.job_id)===String(jobId));
   for(const p of photos)await offDelete("photos",p.id);
   await Promise.all([
     offDelete("kv",offCacheKey("job_detail",{job_id:jobId})),
@@ -1436,7 +1484,7 @@ async function checkCanDeleteUnsent(){
   if(!navigator.onLine){setDeleteStatus("Connexion nécessaire pour vérifier le droit de suppression.",false,true);return}
   if(deletingJobIds.has(String(jobId))){setDeleteStatus("Annulation en cours…");return}
   try{
-    const [report,photos]=await Promise.all([offGet("reports",jobId),offAll("photos")]);
+    const [report,photos]=await Promise.all([offGet("reports",jobId),offPhotoMetas()]);
     if(state.current!==jobId||request!==deletePermissionRequest)return;
     if(report?.submit){setDeleteStatus("Ce rapport a été marqué pour envoi : suppression bloquée par sécurité.",false,true);return}
     if(offlineSyncRunning||photos.some(p=>String(p.job_id)===String(jobId)&&p.sync_state==="uploading")){
@@ -1477,7 +1525,7 @@ async function cancelJobWithConfirmation(jobId,btn){
   try{
     // Les écritures locales déjà commencées doivent être terminées avant toute annulation.
     await localReportWrites;
-    const [report,photos]=await Promise.all([offGet("reports",jobId),offAll("photos")]);
+    const [report,photos]=await Promise.all([offGet("reports",jobId),offPhotoMetas()]);
     if(report?.submit)throw new Error("Un rapport attend son envoi : suppression interdite.");
     if(offlineSyncRunning||photos.some(p=>String(p.job_id)===jobId&&p.sync_state==="uploading"))
       throw new Error("Un transfert est en cours : réessayez après synchronisation.");
@@ -1487,7 +1535,7 @@ async function cancelJobWithConfirmation(jobId,btn){
     if(!confirm("Supprimer cette intervention créée par vous dans DL TECHNIK ? Cette opération l'annulera dans WAPILOT. Les photos et les brouillons locaux seront ensuite retirés."))return;
     if(btn)btn.textContent="Annulation…";
     // Une seconde lecture protège les brouillons ajoutés durant la confirmation.
-    const [recentReport,recentPhotos]=await Promise.all([offGet("reports",jobId),offAll("photos")]);
+    const [recentReport,recentPhotos]=await Promise.all([offGet("reports",jobId),offPhotoMetas()]);
     if(recentReport?.submit||offlineSyncRunning||recentPhotos.some(p=>String(p.job_id)===jobId&&p.sync_state==="uploading"))
       throw new Error("Envoi ou transfert démarré pendant la confirmation.");
     // Seule la RPC transactionnelle V3.9.2 décide réellement de l'annulation.

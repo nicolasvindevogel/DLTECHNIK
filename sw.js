@@ -1,5 +1,5 @@
-// DL TECHNIK V3.9.7 — installation sûre, aucun accès aux brouillons IndexedDB.
-const CACHE='dl-technik-v3-9-7';
+// DL TECHNIK V3.9.8 — installation sûre, aucun accès aux brouillons IndexedDB.
+const CACHE='dl-technik-v3-9-8';
 const CORE=['./','./index.html','./manifest.webmanifest','./dl-technik-logo.png',
   './icon-192.png','./icon-512.png','./icon-512-maskable.png',
   './apple-touch-icon.png','./favicon-32x32.png','./favicon-16x16.png'];
