@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.4</title>
+<title>DL TECHNIK · V3.9.7</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -316,13 +316,35 @@ html,body{background:#f6f8f7;color:#17211c}
  .camera-zoom-range{max-width:84px}
 }
 </style>
+<style id="dl-technik-v3-9-5-camera-fallback">
+.camera-native{display:block;width:100%;margin-top:8px;padding:9px;border:1px solid #ffffff77;border-radius:10px;background:transparent;color:white;font-size:11px;font-weight:750}
+.camera-fallback{position:fixed;inset:0;z-index:150;background:#091a12b8;display:flex;justify-content:center;align-items:center;padding:20px;box-sizing:border-box}
+.camera-fallback-box{background:white;color:#11241b;width:100%;max-width:430px;padding:20px;border-radius:20px;box-shadow:0 22px 65px #0005}
+.camera-fallback-head{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:17px}
+.camera-fallback-head button{background:#edf4ef;border:0;border-radius:50%;font-size:25px;width:36px;height:36px}
+.camera-fallback p{font-size:13px;line-height:1.5;color:#52655a;margin:12px 0 18px}
+.camera-fallback-primary,.camera-fallback-secondary{width:100%;display:block;border-radius:11px;padding:13px 12px;margin-top:9px;font-size:13px;font-weight:750}
+.camera-fallback-primary{background:#087445;color:white;border:0}
+.camera-fallback-secondary{background:#f4f8f5;color:#17432c;border:1px solid #d6e3d9}
+@media(orientation:landscape) and (max-height:540px){.camera-native{padding:4px 5px;margin-top:3px;font-size:9px}.camera-fallback-box{max-height:96vh;overflow:auto}}
+</style>
+<style id="dl-technik-v3-9-6-native-ios-picker">
+/* iOS Home Screen PWA: the input occupies the exact area touched by the user.
+   No async save, programmatic click, or getUserMedia before presenting it. */
+.native-photo-direct{position:relative;overflow:hidden;cursor:pointer;touch-action:manipulation;isolation:isolate}
+.native-photo-direct input[type="file"]{position:absolute;inset:0;width:100%;height:100%;opacity:0;z-index:2;cursor:pointer;font-size:30px;touch-action:manipulation}
+.native-photo-direct:focus-within{outline:2px solid #087445;outline-offset:2px}
+.native-photo-direct.gallery-choice{background:#eef6f0;border-color:#9acbae}
+.native-photo-direct.gallery-choice b{font-size:18px}
+.native-camera-help{font-size:10px;line-height:1.45;color:#647569;padding:7px 0 3px}
+</style>
 </head>
 <body>
 <div id="authRoot"></div>
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.7</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <main id="content" class="content"></main>
@@ -339,8 +361,18 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="modalRoot"></div>
 <div id="toast" class="toast"></div>
 
+<style id="dl-technik-v3-9-7-photo-signalement">
+.photo-sync-panel{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 12px;border:1px solid #d8e3dd;background:#f7fbf8;border-radius:12px;margin-bottom:12px;color:#365a48;font-size:11px}
+.photo-sync-panel:empty{display:none}
+.photo-sync-panel p{margin:4px 0;line-height:1.4;color:#66736c;font-size:10px}
+.photo-sync-panel small{display:block;color:#a33b22;word-break:break-word}
+.photo-sync-panel button{padding:8px 11px;white-space:nowrap;font-size:10px}
+.photo-sync-ok{font-weight:700;color:#087445}
+.syndic-note .photos{margin-top:7px}
+.syndic-note .section-title{font-size:11px;color:#155b89}
+</style>
 <script>
-/* DL TECHNIK V3.9.3 — GitHub Pages · suppression directe depuis la liste, sécurisée Supabase. */
+/* DL TECHNIK V3.9.7 — photos signalement et synchronisation résiliente iOS/VPN. */
 const CFG={url:"https://ccboibbhsztcupfcrndx.supabase.co",key:"sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",fn:"dl-technik-auth"};
 const API=CFG.url+"/functions/v1/"+CFG.fn;
 const TOKEN_KEY="dl_technik_device_token_v1";
@@ -348,7 +380,11 @@ const storageClient=window.supabase.createClient(CFG.url,CFG.key,{
   auth:{persistSession:false,autoRefreshToken:false},
   global:{fetch:(input,init={})=>{
     const controller=new AbortController();
-    const timeout=setTimeout(()=>controller.abort(),18000);
+    // Les transferts de photos signés ont besoin d'un délai bien supérieur aux lectures API.
+    // Sur iOS, une photo importante ou un VPN peut excéder 18 secondes.
+    const target=String(typeof input==="string"?input:(input?.url||input||""));
+    const signedPhotoUpload=/\/storage\/v1\/object\/upload\/sign\//.test(target);
+    const timeout=setTimeout(()=>controller.abort(),signedPhotoUpload?120000:18000);
     const onAbort=()=>controller.abort();
     if(init.signal){if(init.signal.aborted)controller.abort();else init.signal.addEventListener("abort",onAbort,{once:true})}
     return fetch(input,{...init,signal:controller.signal}).finally(()=>{
@@ -366,6 +402,8 @@ let offlineRetryTimer=null;
 let reportSaveTimer=null;
 let localReportWrites=Promise.resolve();
 const SYNC_MAX_DELAY=300000;
+const SYNDIC_PHOTO_CAPTION="Signalement au syndic";
+function isSyndicPhoto(p){return p?.photo_type==="syndic"||(p?.photo_type==="other"&&/^signalement au syndic/i.test(String(p?.caption||"")))}
 const isOwnQueuedItem=r=>!!me&&(!r.technician_id||String(r.technician_id)===String(me?.technician_id||me?.id||""));
 function syncBackoff(attempt=1){return Math.min(SYNC_MAX_DELAY,4000*Math.pow(2,Math.min(6,Math.max(0,attempt-1))))+Math.floor(Math.random()*900)}
 function queueRetry(){
@@ -458,6 +496,7 @@ async function offQueuePhoto(file,type,visitId){
     appendLocalPhotoThumb({id,visit_id:visitId,photo_type:type,signed_url:localUrl,_offline:true});
   }
   refreshNetworkBadge().catch(console.warn);
+  updatePhotoSyncPanel().catch(()=>{});
   if(navigator.onLine)scheduleBackgroundPhotoSync(250);
   return rec;
 }
@@ -508,12 +547,31 @@ async function offHydrateLocalPhotos(detail){
   }
   return detail;
 }
+async function updatePhotoSyncPanel(){
+  const el=$("photoSyncPanel");if(!el||!state.current)return;
+  const items=(await offAll("photos")).filter(p=>isOwnQueuedItem(p)&&String(p.job_id)===String(state.current));
+  if(!items.length){el.innerHTML='';return}
+  const failed=items.filter(p=>p.sync_state==="error");
+  const uploading=items.filter(p=>p.sync_state==="uploading").length;
+  const details=failed.length?` · ${failed.length} à relancer`:uploading?' · transfert en cours':'';
+  const last=failed.find(p=>p.last_error)?.last_error;
+  el.innerHTML=`<div><b>📷 ${items.length} photo${items.length>1?'s':''} en attente de confirmation${details}</b><p>Les fichiers restent sur ce téléphone jusqu'à confirmation du serveur. Gardez DL TECHNIK au premier plan pendant l'envoi.</p>${last?`<small>Dernière erreur : ${esc(last)}</small>`:''}</div><button class="light" type="button" onclick="retryPendingPhotoUploads()">↻ Relancer l'envoi</button>`;
+}
+async function retryPendingPhotoUploads(){
+  if(!navigator.onLine){toast("Aucun réseau détecté — photos conservées sur le téléphone");return}
+  const items=(await offAll("photos")).filter(p=>isOwnQueuedItem(p)&&String(p.job_id)===String(state.current));
+  for(const p of items)if(p.sync_state!=="uploading")await offPut("photos",undefined,{...p,next_retry_at:0,sync_state:"local"});
+  toast("Nouvelle tentative de synchronisation des photos");
+  await updatePhotoSyncPanel();
+  scheduleBackgroundPhotoSync(100);
+}
 async function markFailed(store,rec,err){
   const current=await offGet(store,store==="photos"?rec.id:rec.job_id);
   if(!current)return;
   if(store==="photos"){const el=document.querySelector(`[data-photo-id="${CSS.escape(current.id)}"]`);if(el){el.classList.add("failed-photo");el.classList.remove("syncing-photo")}}
   const attempts=(current.attempts||0)+1;
   await offPut(store,undefined,{...current,attempts,next_retry_at:Date.now()+syncBackoff(attempts),sync_state:"error",last_error:String(err?.message||err).slice(0,300)});
+  if(store==="photos")updatePhotoSyncPanel().catch(()=>{});
 }
 async function callRemotePhotoExists(p,visitId){
   // A lost register_photo response MUST NOT cause a second row.
@@ -525,34 +583,40 @@ async function syncOneQueuedPhoto(p,visitId){
   let current=await offGet("photos",p.id);
   if(!current||current.next_retry_at>Date.now()||!isOwnQueuedItem(current))return false;
   if(current.sync_state==="uploading")current={...current,sync_state:"local"}; // crash recovery
-  if(!navigator.onLine||weakNetwork())return false;
+  // Ne jamais ignorer les photos en 2G : le VPN et Safari peuvent rapporter
+  // un débit trompeur. Réessayer avec compression et délai prolongé.
+  if(!navigator.onLine)return false;
   try{
     await offPut("photos",undefined,{...current,sync_state:"uploading"});
+    updatePhotoSyncPanel().catch(()=>{});
     const uploadingEl=document.querySelector(`[data-photo-id="${CSS.escape(current.id)}"]`);if(uploadingEl){uploadingEl.classList.add("syncing-photo");uploadingEl.classList.remove("failed-photo")}
     // Reuse one signed path, even after network timeouts, instead of creating duplicates.
     if(current.storage_path){
       const existing=await callRemotePhotoExists(current,visitId);
       if(existing){await completeQueuedPhoto(current,existing);return true}
     }
-    let file=current.blob,mime=current.mime_type||"image/jpeg";
-    if(!current.storage_path){
-      file=await compressImage(new File([current.blob],current.original_filename,{type:mime}));
-      mime=file.type||mime;
-      // Save compressed bytes, so every retry uploads the same content.
-      current={...current,blob:file,mime_type:mime};
-      const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:current.photo_type,mime_type:mime},{skipOffline:true,timeoutMs:10000});
+    // Garder le fichier original en IndexedDB tant que l'envoi n'est PAS confirmé.
+    // La compression se fait uniquement pour le transfert, jamais à la capture.
+    const sourceMime=current.mime_type||"image/jpeg";
+    const sourceFile=new File([current.blob],current.original_filename||"photo.jpg",{type:sourceMime});
+    const file=await compressImage(sourceFile);
+    const mime=file.type||sourceMime;
+    const remoteType=current.photo_type==="syndic"?"other":current.photo_type;
+    if(!current.storage_path||!current.signed_token){
+      const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:remoteType,mime_type:mime},{skipOffline:true,timeoutMs:20000});
       current.storage_path=sign.path;current.signed_token=sign.token;
       await offPut("photos",undefined,current);
     }
-    const up=await storageClient.storage.from("technik-interventions").uploadToSignedUrl(current.storage_path,current.signed_token,current.blob,{contentType:current.mime_type});
-    // A successful prior upload can return conflict on retry. Verify via registration.
+    const up=await storageClient.storage.from("technik-interventions").uploadToSignedUrl(current.storage_path,current.signed_token,file,{contentType:mime});
+    // Après une réponse perdue, le chemin reste identique ; 409 signifie déjà chargé.
     if(up.error&&!/already exists|duplicate|conflict|409/i.test(String(up.error.message||up.error))){
       if(/expired|jwt|unauthori|invalid token|403/i.test(String(up.error.message||up.error))){
-        current.storage_path=null;current.signed_token=null; // obtain a new signing token on next attempt
+        current.storage_path=null;current.signed_token=null;
+        await offPut("photos",undefined,current);
       }
-      throw up.error;
+      throw new Error(`Transfert photo : ${String(up.error.message||up.error)}`);
     }
-    const result=await api("register_photo",{visit_id:visitId,photo_type:current.photo_type,storage_path:current.storage_path,original_filename:current.original_filename,mime_type:current.mime_type,file_size_bytes:current.blob.size},{skipOffline:true,timeoutMs:10000});
+    const result=await api("register_photo",{visit_id:visitId,photo_type:remoteType,storage_path:current.storage_path,original_filename:current.original_filename,mime_type:mime,file_size_bytes:file.size,caption:current.photo_type==="syndic"?SYNDIC_PHOTO_CAPTION:null},{skipOffline:true,timeoutMs:20000});
     await completeQueuedPhoto(current,{id:result.photo_id,visit_id:visitId,storage_path:current.storage_path});
     return true;
   }catch(err){
@@ -562,11 +626,14 @@ async function syncOneQueuedPhoto(p,visitId){
 }
 async function completeQueuedPhoto(p,remote){
   await offDelete("photos",p.id);
+  updatePhotoSyncPanel().catch(()=>{});
   if(state.currentDetail?.job?.id===p.job_id){
-    state.currentDetail.photos=(state.currentDetail.photos||[]).filter(x=>x.id!==p.id);
+    const item=(state.currentDetail.photos||[]).find(x=>x.id===p.id);
+    if(item){item.id=remote.id||p.id;item._offline=false;item._syncing=false;item.photo_type=p.photo_type==="syndic"?"other":p.photo_type;if(p.photo_type==="syndic")item.caption=SYNDIC_PHOTO_CAPTION;item.storage_path=remote.storage_path||p.storage_path}
     // The remote image will be visible with its signed URL on the next detail refresh.
     const e=document.querySelector(`[data-photo-id="${CSS.escape(p.id)}"]`);
     if(e){e.classList.remove("pending-photo","syncing-photo");e.dataset.photoId=remote.id||p.id;
+      const remove=e.querySelector("button");if(remove)remove.onclick=(event)=>{event.stopPropagation();deletePhoto(remote.id||p.id)};
       let badge=e.querySelector(".photo-sync-label");if(badge)badge.textContent="Synchronisé"}
   }
 }
@@ -611,15 +678,13 @@ async function syncOfflineQueue(){
   offlineSyncRunning=true;
   await refreshNetworkBadge().catch(()=>{});
   try{
-    // Skip large photo uploads on a connection reported as 2G or data-saver.
+    // Tenter une photo à la fois, même sur réseau lent / VPN.
     const reports=(await offAll("reports")).filter(isOwnQueuedItem);
     for(const r of reports)await syncOneQueuedReport(r);
-    if(!weakNetwork()){
-      const remaining=(await offAll("photos")).filter(isOwnQueuedItem);
-      for(const p of remaining){
-        const visitId=p.visit_id||(await offGet("reports",p.job_id))?.visit_id;
-        if(visitId)await syncOneQueuedPhoto(p,visitId);
-      }
+    const remaining=(await offAll("photos")).filter(isOwnQueuedItem);
+    for(const p of remaining){
+      const visitId=p.visit_id||(await offGet("reports",p.job_id))?.visit_id;
+      if(visitId)await syncOneQueuedPhoto(p,visitId);
     }
   }finally{
     offlineSyncRunning=false;
@@ -900,6 +965,7 @@ function renderDetail(){
   const team=(j.assignees||[]).map(a=>a.display_name).filter(Boolean);
   $("content").innerHTML=`
     ${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Vous pouvez compléter le rapport et ajouter des photos. Tout sera synchronisé au retour du réseau.</div>`:""}
+    <div id="photoSyncPanel" class="photo-sync-panel" role="status" aria-live="polite"></div>
     <button class="back" onclick="go('jobs')">← Retour aux interventions</button>
     <div class="card"><div class="detail-head"><div class="job-meta" style="margin-top:0">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||"")}</span></div><h2>${esc(j.title)}</h2><div class="detail-place">📍 ${esc(j.location_label||"")}${j.location_address?" · "+esc(j.location_address):""}</div>
       ${team.length?`<div class="team-summary">${team.map(n=>`<span class="team-chip">👤 ${esc(n)}</span>`).join("")}</div>`:""}
@@ -910,6 +976,7 @@ function renderDetail(){
     ${d.visits?.length?`<div class="card"><div class="section-title">Historique des passages</div><div class="timeline">${d.visits.map(v=>renderVisitHistory(v)).join("")}</div></div>`:""}
   `;
   if(open){bindCheckChanges();bindReportAutoSave()}
+  updatePhotoSyncPanel().catch(console.warn);
   if($("deleteDraftAction"))checkCanDeleteUnsent().catch(console.warn);
 }
 function renderDeleteUnsentAction(detail){
@@ -1005,7 +1072,7 @@ async function confirmAddTechnicians(){
 }
 
 function renderActiveVisit(v,d){
-  const photos=d.photos||[],before=photos.filter(p=>p.visit_id===v.id&&p.photo_type==="before"),after=photos.filter(p=>p.visit_id===v.id&&p.photo_type==="after");
+  const photos=d.photos||[],before=photos.filter(p=>p.visit_id===v.id&&p.photo_type==="before"),after=photos.filter(p=>p.visit_id===v.id&&p.photo_type==="after"),syndic=photos.filter(p=>String(p.visit_id)===String(v.id)&&isSyndicPhoto(p));
   const checks=(d.checks||[]).filter(c=>c.visit_id===v.id);
   const arrival=visitTimeValue(v.started_at),departure=visitTimeValue(v.ended_at);
   const currentMinutes=Number(v.duration_minutes||0);
@@ -1030,17 +1097,51 @@ function renderActiveVisit(v,d){
     <div class="field"><label>REMARQUES SUR LE RAPPORT</label><textarea id="remarks" placeholder="Observations concernant le travail effectué…">${esc(v.remarks||"")}</textarea></div>
     <div class="field syndic-note"><label for="syndicRemarks">REMARQUES À COMMUNIQUER AU SYNDIC</label>
       <textarea id="syndicRemarks" maxlength="5000" placeholder="Ex. : ampoule grillée au 2e étage, fuite constatée, porte à vérifier…">${esc(v.syndic_remarks||"")}</textarea>
-      <div class="syndic-note-hint">Lors de l'envoi du rapport, une tâche sera automatiquement créée dans WAPILOT si ce champ est renseigné. En attendant, votre texte reste enregistré sur le téléphone.</div>
+      <div class="section-title" style="margin-top:12px">Photos du signalement <span class="sub">${syndic.length} photo(s)</span></div>
+      ${photoGrid(syndic,"syndic",v.id)}
+      <div class="syndic-note-hint">Ces photos accompagneront votre signalement dans le dossier DL TECHNIK de WAPILOT. Une tâche sera créée lors de l'envoi du rapport si cette remarque est renseignée. Les photos restent sur le téléphone jusqu'à synchronisation.</div>
     </div>
     <div class="footer-actions"><button class="light" onclick="saveVisit()">Enregistrer</button><button class="primary" onclick="finishVisit()">Envoyer rapport</button></div>
   </div>`;
 }
+function isIOSHomeScreenApp(){
+  const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+  return !!(ios&&(navigator.standalone===true||window.matchMedia?.("(display-mode: standalone)")?.matches));
+}
 function photoGrid(arr,type,visitId){
-  return `<div class="photos" id="photoGrid-${type}-${visitId}">${arr.map(p=>`<div class="photo ${p._offline?"pending-photo":""} ${p._syncing?"syncing-photo":""} ${p._error?"failed-photo":""}" data-photo-id="${esc(p.id)}">${p.signed_url?`<img src="${esc(p.signed_url)}" alt="Photo">`:""}<button onclick="event.stopPropagation();deletePhoto('${p.id}')">×</button></div>`).join("")}<button class="add-photo" onclick="pickPhotos('${type}','${visitId}')"><b>＋</b><span>Ajouter</span></button></div><div class="bg-upload-note">Les photos sont sécurisées sur le téléphone puis envoyées en arrière-plan.</div>`;
+  // On an installed iOS web app, actual file controls must receive the tap.
+  // Routing through getUserMedia or through await before input.click() is unreliable on WebKit.
+  const picker=isIOSHomeScreenApp()
+    ? `<label class="add-photo native-photo-direct" aria-label="Prendre une photo avec l'iPhone"><b>＋</b><span>Photo</span><input type="file" accept="image/*" capture="environment" aria-label="Appareil photo de l'iPhone" onchange="handleNativePhotoFiles(this,'${type}','${visitId}')"></label>
+       <label class="add-photo native-photo-direct gallery-choice" aria-label="Choisir des photos dans la photothèque"><b>▧</b><span>Galerie</span><input type="file" accept="image/*" multiple aria-label="Photothèque de l'iPhone" onchange="handleNativePhotoFiles(this,'${type}','${visitId}')"></label>`
+    : `<button class="add-photo" onclick="pickPhotos('${type}','${visitId}')"><b>＋</b><span>Ajouter</span></button>`;
+  return `<div class="photos" id="photoGrid-${type}-${visitId}">${arr.map(p=>`<div class="photo ${p._offline?"pending-photo":""} ${p._syncing?"syncing-photo":""} ${p._error?"failed-photo":""}" data-photo-id="${esc(p.id)}">${p.signed_url?`<img src="${esc(p.signed_url)}" alt="Photo">`:""}<button onclick="event.stopPropagation();deletePhoto('${p.id}')">×</button></div>`).join("")}${picker}</div><div class="bg-upload-note">Les photos sont sécurisées sur le téléphone puis envoyées en arrière-plan.</div>${isIOSHomeScreenApp()?`<div class="native-camera-help">Sur iPhone, utilisez « Photo » pour l'appareil natif ou « Galerie » pour des images existantes. En cas de blocage iOS, ouvrez DL TECHNIK dans Safari sans effacer les données.</div>`:""}`;
+}
+async function handleNativePhotoFiles(input,type,visitId){
+  // This callback starts only AFTER iOS returns the selected file. It is therefore
+  // safe to await IndexedDB here, unlike before opening the native picker.
+  const files=Array.from(input?.files||[]);
+  if(!files.length)return;
+  if(!await saveVisit(true)){
+    alert("Impossible de sécuriser le brouillon sur cet iPhone. La photo n'a pas encore été enregistrée : vérifiez l'espace disponible, puis réessayez. N'effacez pas les données de DL TECHNIK.");
+    return;
+  }
+  let saved=0;
+  for(const file of files){
+    try{await uploadPhoto(file,type,visitId);saved++}
+    catch(e){console.warn("Échec de l'enregistrement local d'une photo",e);alert("Photo non sauvegardée ("+(file.name||"nouvelle photo")+") : "+e.message)}
+  }
+  if(saved){
+    input.value="";
+    toast(`${saved} photo${saved>1?"s":""} enregistrée${saved>1?"s":""} sur le téléphone`);
+    scheduleBackgroundPhotoSync(250);
+  }
 }
 function renderVisitHistory(v){
   const mins=v.manual_duration_minutes??v.duration_minutes;
-  return `<div class="visit"><h4>${fmtDate(v.visit_date)} · ${v.status==="submitted"?"Rapport envoyé":v.status==="validated"?"Validé":statusLabel(v.status)}</h4><p>⏱ ${fmtMinutes(mins)}</p>${v.work_done?`<p><b>Travaux :</b> ${esc(v.work_done)}</p>`:""}${v.remarks?`<p><b>Remarques :</b> ${esc(v.remarks)}</p>`:""}${v.syndic_remarks?`<p><b>Signalement au syndic :</b> ${esc(v.syndic_remarks)}</p>`:""}</div>`;
+  const signalPhotos=(state.currentDetail?.photos||[]).filter(p=>String(p.visit_id)===String(v.id)&&isSyndicPhoto(p));
+  const pics=signalPhotos.length?`<div class="section-title" style="margin-top:9px">Photos du signalement (${signalPhotos.length})</div><div class="photos">${signalPhotos.map(p=>`<div class="photo">${p.signed_url?`<img src="${esc(p.signed_url)}" alt="Photo signalement">`:''}</div>`).join('')}</div>`:'';
+  return `<div class="visit"><h4>${fmtDate(v.visit_date)} · ${v.status==="submitted"?"Rapport envoyé":v.status==="validated"?"Validé":statusLabel(v.status)}</h4><p>⏱ ${fmtMinutes(mins)}</p>${v.work_done?`<p><b>Travaux :</b> ${esc(v.work_done)}</p>`:""}${v.remarks?`<p><b>Remarques :</b> ${esc(v.remarks)}</p>`:""}${v.syndic_remarks?`<p><b>Signalement au syndic :</b> ${esc(v.syndic_remarks)}</p>`:""}${pics}</div>`;
 }
 async function prepareVisit(){
   const d=state.currentDetail;if(!d)return;
@@ -1109,14 +1210,41 @@ let cameraCaptureBusy=false;
 let cameraTouchDistance=null;
 
 async function pickPhotos(type,visitId){
-  // Locally preserve report fields first; never wait for the server before opening camera.
-  if(!await saveVisit(true))return;
+  // Preserve the report offline before taking a picture. A failure must be visible.
+  if(!await saveVisit(true)){
+    alert("Impossible de sécuriser le brouillon sur ce téléphone. Vérifiez l’espace libre, puis réessayez. Ne supprimez pas les données de l’application.");
+    return;
+  }
   cameraPhotoType=type;cameraVisitId=visitId;cameraShots=[];
   if(navigator.mediaDevices?.getUserMedia){
     try{await startCamera();renderCamera();return}
-    catch(e){console.warn("Caméra intégrée indisponible",e);stopCamera()}
+    catch(e){console.warn("Caméra intégrée indisponible",e);stopCamera();showCameraFallback(e);return}
   }
-  pickGallery(type,visitId);
+  showCameraFallback(new Error("Le navigateur ne permet pas l'ouverture de la caméra intégrée."));
+}
+function showCameraFallback(err){
+  stopCamera();
+  const denied=err?.name==="NotAllowedError"||err?.name==="PermissionDeniedError";
+  const explanation=denied
+    ? "L'accès à la caméra a été refusé ou restreint. Vous pouvez essayer la caméra native ci-dessous et vérifier les réglages Safari du téléphone."
+    : "La caméra intégrée n'a pas pu démarrer sur ce téléphone. Vous pouvez utiliser l'appareil photo natif ou choisir une image existante.";
+  $("modalRoot").innerHTML=`<div class="camera-fallback" role="dialog" aria-modal="true" aria-label="Choisir la source photo">
+    <div class="camera-fallback-box">
+      <div class="camera-fallback-head"><b>Ajouter une photo</b><button aria-label="Fermer" onclick="closeCamera()">×</button></div>
+      <p>${esc(explanation)}</p>
+      <button class="camera-fallback-primary" onclick="pickNativeFromCamera()">📷 Ouvrir l'appareil photo du téléphone</button>
+      <button class="camera-fallback-secondary" onclick="pickGalleryFromCamera()">▧ Choisir dans la galerie</button>
+      <button class="camera-fallback-secondary" onclick="retryIntegratedCamera()">↻ Réessayer la caméra intégrée</button>
+    </div>
+  </div>`;
+}
+function retryIntegratedCamera(){
+  const type=cameraPhotoType,visitId=cameraVisitId;
+  closeCamera();pickPhotos(type,visitId);
+}
+function pickNativeFromCamera(){
+  const type=cameraPhotoType,visitId=cameraVisitId;
+  closeCamera();openNativePhotoPicker(type,visitId,true);
 }
 async function startCamera(deviceId=null){
   stopCamera();
@@ -1141,6 +1269,7 @@ function renderCamera(){
         <button class="shutter" onclick="captureShot()" aria-label="Prendre une photo"></button>
         <button id="cameraDone" class="camera-done" onclick="uploadCameraShots()">Terminer</button>
       </div>
+      <button class="camera-native" onclick="pickNativeFromCamera()">Utiliser l'appareil photo du téléphone</button>
       <div id="cameraPreviews" class="camera-previews"></div>
     </div>
   </div>`;
@@ -1212,27 +1341,61 @@ async function removeCameraShot(i){
 function stopCamera(){if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}}
 function closeCamera(){stopCamera();cameraShots.forEach(s=>URL.revokeObjectURL(s.url));cameraShots=[];$("modalRoot").innerHTML=""}
 async function uploadCameraShots(){closeCamera();toast("Photos enregistrées · synchronisation en arrière-plan");scheduleBackgroundPhotoSync(150)}
-function pickGalleryFromCamera(){closeCamera();pickGallery(cameraPhotoType,cameraVisitId)}
-function pickGallery(type,visitId){
-  const input=document.createElement("input");input.type="file";input.accept="image/*";input.multiple=true;
-  input.onchange=async()=>{
-    const files=[...(input.files||[])];if(!files.length)return;
+function pickGalleryFromCamera(){
+  const type=cameraPhotoType,visitId=cameraVisitId;
+  closeCamera();pickGallery(type,visitId);
+}
+function pickGallery(type,visitId){openNativePhotoPicker(type,visitId,false)}
+function openNativePhotoPicker(type,visitId,camera=false){
+  // File selection must be initiated synchronously by an explicit user tap on iOS.
+  // Keep the input in the DOM while the native picker is being presented.
+  const input=document.createElement("input");
+  input.type="file";input.accept="image/*";
+  if(camera)input.setAttribute("capture","environment");
+  else input.multiple=true;
+  input.setAttribute("aria-label",camera?"Appareil photo du téléphone":"Galerie photo");
+  input.style.cssText="position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none";
+  document.body.appendChild(input);
+  input.addEventListener("cancel",()=>input.remove(),{once:true});
+  input.addEventListener("change",async()=>{
+    const files=Array.from(input.files||[]);
+    input.remove();
+    if(!files.length)return;
     let saved=0;
-    for(const file of files){try{await uploadPhoto(file,type,visitId);saved++}catch(e){alert(`Enregistrement local impossible (${file.name}): ${e.message}`)}}
-    toast(`${saved} photo${saved>1?"s":""} sécurisée${saved>1?"s":""} localement`);
-  };
-  input.click();
+    for(const file of files){
+      try{await uploadPhoto(file,type,visitId);saved++}
+      catch(e){alert(`Enregistrement local impossible (${file.name}): ${e.message}`)}
+    }
+    if(saved)toast(`${saved} photo${saved>1?"s":""} sécurisée${saved>1?"s":""} localement`);
+  },{once:true});
+  try{input.click()}catch(e){input.remove();alert("Impossible d'ouvrir le sélecteur photo : "+e.message)}
 }
 async function compressImage(file){
   if(!file.type.startsWith("image/"))return file;
+  let bitmap=null,localUrl=null;
   try{
-    const bitmap=await createImageBitmap(file),max=1600,scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
-    const w=Math.round(bitmap.width*scale),h=Math.round(bitmap.height*scale),canvas=document.createElement("canvas");
-    canvas.width=w;canvas.height=h;canvas.getContext("2d").drawImage(bitmap,0,0,w,h);
-    bitmap.close?.();
-    const blob=await new Promise(res=>canvas.toBlob(res,"image/jpeg",.82));
-    return blob||file;
-  }catch{return file}
+    // createImageBitmap peut échouer sur certains formats HEIC d'iPhone.
+    let width,height,drawable;
+    try{bitmap=await createImageBitmap(file);drawable=bitmap;width=bitmap.width;height=bitmap.height}
+    catch(_){
+      localUrl=URL.createObjectURL(file);
+      const img=new Image();
+      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=reject;img.src=localUrl});
+      drawable=img;width=img.naturalWidth;height=img.naturalHeight;
+    }
+    const networkConstrained=weakNetwork()||navigator.connection?.saveData;
+    const max=networkConstrained?1280:1600;
+    const scale=Math.min(1,max/Math.max(width,height));
+    const w=Math.max(1,Math.round(width*scale)),h=Math.max(1,Math.round(height*scale));
+    const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
+    const ctx=canvas.getContext("2d",{alpha:false});if(!ctx)throw new Error("Canvas inaccessible");
+    ctx.drawImage(drawable,0,0,w,h);
+    const blob=await new Promise(res=>canvas.toBlob(res,"image/jpeg",networkConstrained?.72:.78));
+    if(!blob?.size)throw new Error("Image non décodable");
+    // Pas d'intérêt à rendre un fichier déjà compressé plus lourd.
+    return blob.size<file.size?new File([blob],(file.name||"photo").replace(/\.[^.]+$/,"")+".jpg",{type:"image/jpeg"}):file;
+  }catch(e){console.warn("Compression non disponible, image originale conservée",e);return file}
+  finally{bitmap?.close?.();if(localUrl)URL.revokeObjectURL(localUrl)}
 }
 async function uploadPhoto(file,type,visitId){return {queued:true,id:(await offQueuePhoto(file,type,visitId)).id}}
 async function deletePhoto(id,alreadyConfirmed=false){
