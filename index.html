@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.8</title>
+<title>DL TECHNIK · V3.9.9</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -344,7 +344,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.8</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.9</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <main id="content" class="content"></main>
@@ -372,7 +372,7 @@ html,body{background:#f6f8f7;color:#17211c}
 .syndic-note .section-title{font-size:11px;color:#155b89}
 </style>
 <script>
-/* DL TECHNIK V3.9.8 — photos signalement et synchronisation résiliente iOS/VPN. */
+/* DL TECHNIK V3.9.9 — photos signalement et synchronisation résiliente iOS/VPN. */
 const CFG={url:"https://ccboibbhsztcupfcrndx.supabase.co",key:"sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",fn:"dl-technik-auth"};
 const API=CFG.url+"/functions/v1/"+CFG.fn;
 const TOKEN_KEY="dl_technik_device_token_v1";
@@ -441,7 +441,7 @@ async function offCount(store){const d=await offOpen();return new Promise((resol
 function offCacheKey(action,payload={}){return `api:${action}:${JSON.stringify(payload,Object.keys(payload).sort())}`}
 async function offCacheApi(action,payload,value){try{await offPut("kv",offCacheKey(action,payload),{ts:Date.now(),value})}catch(e){}}
 async function offReadApi(action,payload){try{return (await offGet("kv",offCacheKey(action,payload)))?.value||null}catch{return null}}
-// V3.9.8 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
+// V3.9.9 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
 // Les photos et leur contenu restent inchangés dans IndexedDB (version 1).
 async function offPhotoMetas(){
   const d=await offOpen();
@@ -603,6 +603,67 @@ async function callRemotePhotoExists(p,visitId){
   const detail=await api("job_detail",{job_id:p.job_id},{skipOffline:true,timeoutMs:9000});
   return (detail.photos||[]).find(x=>x.storage_path===p.storage_path&&String(x.visit_id)===String(visitId));
 }
+// V3.9.9 — voie iOS via fonction autonome: aucun changement de l'Edge Function historique.
+function isIOSPhotoDevice(){return /iPad|iPhone|iPod/.test(navigator.userAgent)||
+  (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1)}
+const PHOTO_PROXY_MAX_BYTES=4*1024*1024;
+async function prepareIPhoneProxyPhoto(file){
+  if(file.size<=PHOTO_PROXY_MAX_BYTES)return file;
+  // Nouvelle compression forcée pour les anciennes photos très volumineuses.
+  let bitmap=null,url=null;
+  try{
+    let drawable,width,height;
+    try{bitmap=await createImageBitmap(file);drawable=bitmap;width=bitmap.width;height=bitmap.height}
+    catch(_){url=URL.createObjectURL(file);const img=new Image();
+      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=reject;img.src=url});
+      drawable=img;width=img.naturalWidth;height=img.naturalHeight}
+    if(!width||!height)throw new Error("Dimensions indisponibles");
+    const scale=Math.min(1,1300/Math.max(width,height));
+    const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));
+    const ctx=canvas.getContext("2d",{alpha:false});if(!ctx)throw new Error("Canvas indisponible");
+    ctx.drawImage(drawable,0,0,canvas.width,canvas.height);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",.67));
+    if(!blob?.size||blob.size>PHOTO_PROXY_MAX_BYTES)throw new Error("Compression iPhone insuffisante");
+    return new File([blob],(file.name||"photo").replace(/\.[^.]+$/,"")+".jpg",{type:"image/jpeg"});
+  }catch(e){throw new Error("Image trop volumineuse pour l'envoi iPhone (limite 4 Mo) : "+String(e.message||e))}
+  finally{bitmap?.close?.();if(url)URL.revokeObjectURL(url)}
+}
+function imageBlobBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error("Lecture de la photo sur iPhone impossible."));
+    reader.onabort=()=>reject(new Error("Lecture de la photo interrompue."));
+    reader.onload=()=>{
+      const result=String(reader.result||"");const pos=result.indexOf(",");
+      if(pos<0||!result.slice(pos+1))reject(new Error("La photo est vide après conversion locale."));
+      else resolve(result.slice(pos+1));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+async function proxyUploadIPhonePhoto(photo){
+  const token=localStorage.getItem(TOKEN_KEY);
+  if(!token)throw new Error("Session iPhone absente. Photos conservées; reconnectez-vous.");
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),150000);
+  try{
+    const response=await fetch(CFG.url+"/functions/v1/dl-technik-photo-proxy",{
+      method:"POST",headers:{"Content-Type":"application/json","apikey":CFG.key,"Authorization":"Bearer "+CFG.key},
+      signal:controller.signal,body:JSON.stringify({...photo,device_token:token})
+    });
+    const result=await response.json().catch(()=>null);
+    if(!response.ok){
+      if(response.status===404)throw new Error("Fonction dl-technik-photo-proxy non déployée dans Supabase (HTTP 404).");
+      if(response.status===401||response.status===403)throw new Error("Accès refusé (HTTP "+response.status+") : vérifier le déploiement de la fonction (verify_jwt=false) et la session.");
+      throw new Error("Serveur photo (HTTP "+response.status+") : "+String(result?.error||result?.message||"réponse non reconnue"));
+    }
+    if(!result?.ok)throw new Error("Aucune confirmation du serveur photo : "+String(result?.error||"réponse inattendue"));
+    return result;
+  }catch(error){
+    if(error?.name==="AbortError")throw new Error("Délai dépassé lors de l'envoi au serveur photo iPhone (150 s).");
+    throw error;
+  }finally{clearTimeout(timer)}
+}
 async function syncOneQueuedPhoto(p,visitId){
   if(deletingJobIds.has(String(p.job_id)))return false;
   let current=await offGet("photos",p.id);
@@ -617,7 +678,7 @@ async function syncOneQueuedPhoto(p,visitId){
     updatePhotoSyncPanel().catch(()=>{});
     const uploadingEl=document.querySelector(`[data-photo-id="${CSS.escape(current.id)}"]`);if(uploadingEl){uploadingEl.classList.add("syncing-photo");uploadingEl.classList.remove("failed-photo")}
     // Reuse one signed path, even after network timeouts, instead of creating duplicates.
-    if(current.storage_path){
+    if(current.storage_path&&!isIOSPhotoDevice()){
       const existing=await callRemotePhotoExists(current,visitId);
       if(existing){await completeQueuedPhoto(current,existing);return true}
     }
@@ -629,27 +690,32 @@ async function syncOneQueuedPhoto(p,visitId){
     const file=await compressImage(sourceFile);
     const mime=file.type||sourceMime;
     const remoteType=current.photo_type==="syndic"?"other":current.photo_type;
+    const ios=isIOSPhotoDevice();
+    if(ios){
+      // V3.9.9: utiliser l'API JSON qui sait déjà transférer les rapports sur iOS.
+      // Le serveur effectue lui-même l'écriture Storage, sans transfert signé direct Safari.
+      stage="préparation photo iPhone";
+      const proxyFile=await prepareIPhoneProxyPhoto(file);
+      const base64=await imageBlobBase64(proxyFile);
+      stage="envoi via serveur photo iPhone";
+      const proxy=await proxyUploadIPhonePhoto({
+        visit_id:visitId,photo_type:remoteType,client_photo_id:current.id,
+        mime_type:proxyFile.type||"image/jpeg",original_filename:current.original_filename,
+        file_size_bytes:proxyFile.size,caption:current.photo_type==="syndic"?SYNDIC_PHOTO_CAPTION:null,
+        existing_storage_path:current.storage_path||null,image_base64:base64
+      });
+      if(!proxy?.ok||!proxy?.photo_id||!proxy?.storage_path)throw new Error("La fonction photo iPhone n'a pas confirmé l'enregistrement.");
+      await completeQueuedPhoto(current,{id:proxy.photo_id,visit_id:visitId,storage_path:proxy.storage_path});
+      return true;
+    }
+    // Android: conserver strictement le chemin de transfert déjà fonctionnel.
     if(!current.storage_path||!current.signed_token){
       stage="autorisation serveur";
       const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:remoteType,mime_type:mime},{skipOffline:true,timeoutMs:20000});
       current.storage_path=sign.path;current.signed_token=sign.token;
       await offPut("photos",undefined,current);
     }
-    stage="transfert Storage";
-    // WebKit/iOS : éviter les FormData contenant un File issu d'IndexedDB.
-    // Supabase Storage JS accepte Uint8Array et l'envoie en corps binaire brut.
-    // Sur Android, conserver la méthode éprouvée de V3.9.7.
-    const ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||
-      (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
-    let uploadBody=file;
-    if(ios){
-      stage="lecture binaire iOS";
-      const arrayBuffer=await file.arrayBuffer();
-      if(!arrayBuffer.byteLength)throw new Error("iOS : fichier image vide après lecture locale. Original conservé.");
-      uploadBody=new Uint8Array(arrayBuffer);
-    }
-    // cacheControl explicite : certaines versions storage-js produisent sinon
-    // un champ multipart cacheControl=undefined.
+    const uploadBody=file;
     stage="transfert Storage";
     const up=await storageClient.storage.from("technik-interventions")
       .uploadToSignedUrl(current.storage_path,current.signed_token,uploadBody,{contentType:mime,cacheControl:"3600"});
@@ -1162,7 +1228,7 @@ function photoGrid(arr,type,visitId){
     ? `<label class="add-photo native-photo-direct" aria-label="Prendre une photo avec l'iPhone"><b>＋</b><span>Photo</span><input type="file" accept="image/*" capture="environment" aria-label="Appareil photo de l'iPhone" onchange="handleNativePhotoFiles(this,'${type}','${visitId}')"></label>
        <label class="add-photo native-photo-direct gallery-choice" aria-label="Choisir des photos dans la photothèque"><b>▧</b><span>Galerie</span><input type="file" accept="image/*" multiple aria-label="Photothèque de l'iPhone" onchange="handleNativePhotoFiles(this,'${type}','${visitId}')"></label>`
     : `<button class="add-photo" onclick="pickPhotos('${type}','${visitId}')"><b>＋</b><span>Ajouter</span></button>`;
-  return `<div class="photos" id="photoGrid-${type}-${visitId}">${arr.map(p=>`<div class="photo ${p._offline?"pending-photo":""} ${p._syncing?"syncing-photo":""} ${p._error?"failed-photo":""}" data-photo-id="${esc(p.id)}">${p.signed_url?`<img src="${esc(p.signed_url)}" alt="Photo">`:""}<button onclick="event.stopPropagation();deletePhoto('${p.id}')">×</button></div>`).join("")}${picker}</div><div class="bg-upload-note">Les photos sont sécurisées sur le téléphone puis envoyées en arrière-plan.</div>${isIOSHomeScreenApp()?`<div class="native-camera-help">Sur iPhone, utilisez « Photo » pour l'appareil natif ou « Galerie » pour des images existantes. En cas de blocage iOS, ouvrez DL TECHNIK dans Safari sans effacer les données.</div>`:""}`;
+  return `<div class="photos" id="photoGrid-${type}-${visitId}">${arr.map(p=>`<div class="photo ${p._offline?"pending-photo":""} ${p._syncing?"syncing-photo":""} ${p._error?"failed-photo":""}" data-photo-id="${esc(p.id)}">${p.signed_url?`<img src="${esc(p.signed_url)}" alt="Photo">`:""}<button onclick="event.stopPropagation();deletePhoto('${p.id}')">×</button></div>`).join("")}${picker}</div><div class="bg-upload-note">Les photos sont sécurisées sur le téléphone puis envoyées en arrière-plan.</div>${isIOSHomeScreenApp()?`<div class="native-camera-help">Sur iPhone, utilisez « Photo » pour l'appareil natif ou « Galerie » pour des images existantes. En cas de blocage, consultez la dernière erreur dans le panneau de synchronisation sans effacer les données.</div>`:""}`;
 }
 async function handleNativePhotoFiles(input,type,visitId){
   // This callback starts only AFTER iOS returns the selected file. It is therefore
