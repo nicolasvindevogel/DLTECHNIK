@@ -1,5 +1,5 @@
-// DL TECHNIK V3.9.10 — installation sûre, aucun accès aux brouillons IndexedDB.
-const CACHE='dl-technik-v3-9-10';
+// DL TECHNIK V3.9.11 — installation sûre, aucun accès aux brouillons IndexedDB.
+const CACHE='dl-technik-v3-9-11';
 const CORE=['./','./index.html','./manifest.webmanifest','./dl-technik-logo.png',
   './icon-192.png','./icon-512.png','./icon-512-maskable.png',
   './apple-touch-icon.png','./favicon-32x32.png','./favicon-16x16.png'];
@@ -18,6 +18,15 @@ self.addEventListener('fetch',event=>{
   // Never cache API calls; never interfere with write traffic or signatures.
   if(url.pathname.includes('/functions/v1/'))return;
   const sameOrigin=url.origin===self.location.origin;
+  // Eviter de servir indéfiniment une ancienne interface sur les PWA iPhone.
+  // Seulement pour la navigation HTML ; un échec réseau retombe sur le cache.
+  if(sameOrigin&&req.mode==='navigate'){
+    event.respondWith(fetch(req).then(async res=>{
+      if(res.ok){const cache=await caches.open(CACHE);await cache.put('./index.html',res.clone()).catch(()=>{})}
+      return res
+    }).catch(async()=>(await caches.match('./index.html'))||Response.error()));
+    return;
+  }
   if(sameOrigin&&CORE.some(p=>new URL(p,self.registration.scope).href===url.href)){
     event.respondWith(caches.match(req).then(cached=>{
       const fresh=fetch(req).then(res=>{if(res.ok){const c=res.clone();caches.open(CACHE).then(k=>k.put(req,c)).catch(()=>{})}return res}).catch(()=>null);

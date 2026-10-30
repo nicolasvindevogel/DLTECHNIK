@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.10</title>
+<title>DL TECHNIK · V3.9.11</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -344,9 +344,13 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.10</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.11</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
+    <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="Synchronisation des photos et diagnostic">
+      <div class="global-sync-main"><b id="globalSyncTitle">Synchronisation des photos</b><small id="globalSyncInfo">Vérification des fichiers locaux…</small></div>
+      <div class="global-sync-actions"><button class="light" type="button" onclick="retryAllPendingUploads()">↻ Relancer</button><button class="light global-diagnostic-btn" type="button" onclick="showPhotoSyncDiagnostic()">Diagnostic</button></div>
+    </section>
     <main id="content" class="content"></main>
   </div>
   <nav class="bottom">
@@ -371,9 +375,17 @@ html,body{background:#f6f8f7;color:#17211c}
 .photo-sync-ok{font-weight:700;color:#087445}
 .syndic-note .photos{margin-top:7px}
 .syndic-note .section-title{font-size:11px;color:#155b89}
+/* V3.9.11 — contrôles toujours visibles, y compris sur Accueil et Terminées. */
+.global-sync-toolbar{max-width:760px;margin:10px 12px 0;padding:10px 12px;border:1px solid #c8dfce;background:#f0f9f3;border-radius:13px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.global-sync-main{flex:1;min-width:165px;color:#174a30;font-size:12px}
+.global-sync-main small{display:block;color:#52695b;font-size:10px;margin-top:3px;overflow-wrap:anywhere;line-height:1.45}
+.global-sync-actions{display:flex;gap:7px;flex-wrap:wrap}
+.global-sync-actions button{border-radius:9px;padding:9px 11px;font-size:11px;white-space:nowrap;min-height:35px}
+.global-diagnostic-btn{border-color:#87b89a!important;background:#fff!important;color:#155d37!important}
+@media(max-width:420px){.global-sync-toolbar{align-items:stretch}.global-sync-actions{width:100%}.global-sync-actions button{flex:1}}
 </style>
 <script>
-/* DL TECHNIK V3.9.10 — diagnostic de file de photos et reprise sans perte. */
+/* DL TECHNIK V3.9.11 — diagnostic global accessible sur TOUS les écrans. */
 const CFG={url:"https://ccboibbhsztcupfcrndx.supabase.co",key:"sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",fn:"dl-technik-auth"};
 const API=CFG.url+"/functions/v1/"+CFG.fn;
 const TOKEN_KEY="dl_technik_device_token_v1";
@@ -401,8 +413,16 @@ const OFFLINE_DB_NAME="dl_technik_offline_v1",OFFLINE_DB_VERSION=1;
 let offlineSyncRunning=false;
 let manualPhotoNetworkValidated=false;
 let lastPhotoSyncStatus={at:0,stage:"",message:""};
+const photoSyncJournal=[];
 function photoNetworkReady(){return navigator.onLine||manualPhotoNetworkValidated}
-function setPhotoSyncStatus(stage,message=""){lastPhotoSyncStatus={at:Date.now(),stage,message:String(message||"").slice(0,220)};updatePhotoSyncPanel().catch(()=>{})}
+function setPhotoSyncStatus(stage,message=""){
+  const m=String(message||"").slice(0,220);
+  lastPhotoSyncStatus={at:Date.now(),stage,message:m};
+  photoSyncJournal.push({heure:new Date().toISOString(),etape:stage,message:m});
+  if(photoSyncJournal.length>24)photoSyncJournal.splice(0,photoSyncJournal.length-24);
+  updatePhotoSyncPanel().catch(()=>{});
+  refreshGlobalSyncToolbar().catch(()=>{});
+}
 let offlineRetryTimer=null;
 let reportSaveTimer=null;
 let localReportWrites=Promise.resolve();
@@ -446,7 +466,7 @@ async function offCount(store){const d=await offOpen();return new Promise((resol
 function offCacheKey(action,payload={}){return `api:${action}:${JSON.stringify(payload,Object.keys(payload).sort())}`}
 async function offCacheApi(action,payload,value){try{await offPut("kv",offCacheKey(action,payload),{ts:Date.now(),value})}catch(e){}}
 async function offReadApi(action,payload){try{return (await offGet("kv",offCacheKey(action,payload)))?.value||null}catch{return null}}
-// V3.9.10 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
+// V3.9.11 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
 // Les photos et leur contenu restent inchangés dans IndexedDB (version 1).
 async function offPhotoMetas(){
   const d=await offOpen();
@@ -473,6 +493,21 @@ async function refreshNetworkBadge(){
   else if(offlineSyncRunning){e.textContent=`TRANSFERT… · ${n} EN ATTENTE`;e.classList.add("syncing")}
   else if(n){e.textContent=`${n} À SYNCHRONISER`;e.classList.add("pending")}
   else e.textContent="SYNCHRONISÉ";
+  refreshGlobalSyncToolbar().catch(()=>{});
+}
+async function refreshGlobalSyncToolbar(){
+  const title=$("globalSyncTitle"),info=$("globalSyncInfo");
+  if(!title||!info||!me)return;
+  try{
+    const [photos,reports]=await Promise.all([offPhotoMetas(),offAll("reports")]);
+    const mine=photos.filter(isOwnQueuedItem),queuedReports=reports.filter(isOwnQueuedItem);
+    const errors=mine.filter(p=>p.sync_state==="error");
+    const lastError=errors.find(p=>p.last_error)?.last_error||queuedReports.find(r=>r.last_error)?.last_error||"";
+    title.textContent=`📷 ${mine.length} photo(s) à synchroniser · ${queuedReports.length} rapport(s)`;
+    info.textContent=lastError?`Dernière erreur : ${String(lastError).slice(0,120)}`:
+      lastPhotoSyncStatus.at?`Dernière étape : ${lastPhotoSyncStatus.stage}${lastPhotoSyncStatus.message?" — "+lastPhotoSyncStatus.message:""}`:
+      mine.length?"Ouvrez Diagnostic pour voir pourquoi les photos restent en attente.":"Aucune photo de ce profil en attente";
+  }catch(error){info.textContent="Lecture de la file locale impossible : "+String(error?.message||error).slice(0,150)}
 }
 function offNetworkError(e){const s=String(e?.message||e||"").toLowerCase();return !navigator.onLine||abortIsNetworkError(e)||s.includes("failed to fetch")||s.includes("networkerror")||s.includes("load failed")||s.includes("timeout")||s.includes("timed out")||s.includes("abort")}
 function offQueueReport(submit=false){
@@ -520,6 +555,7 @@ async function offQueuePhoto(file,type,visitId){
   refreshNetworkBadge().catch(console.warn);
   updatePhotoSyncPanel().catch(()=>{});
   if(navigator.onLine)scheduleBackgroundPhotoSync(250);
+  refreshGlobalSyncToolbar().catch(()=>{});
   return rec;
 }
 
@@ -615,7 +651,7 @@ async function retryPendingPhotoUploads(){
       const actual=await offGet("photos",p.id);
       if(actual)await offPut("photos",undefined,{...actual,next_retry_at:0,sync_state:"local",last_error:"",last_stage:""});
     }
-    // Importante correction V3.9.10 : un rapport échoué bloquait toutes les photos,
+    // Importante correction V3.9.11 : un rapport échoué bloquait toutes les photos,
     // mais son erreur et son délai de reprise n'étaient pas visibles dans le panneau.
     const report=await offGet("reports",state.current);
     if(report&&isOwnQueuedItem(report))await offPut("reports",undefined,{...report,next_retry_at:0,sync_state:"local",last_error:""});
@@ -626,20 +662,67 @@ async function retryPendingPhotoUploads(){
   }catch(e){setPhotoSyncStatus("relance",String(e?.message||e));}
   finally{manualPhotoNetworkValidated=false;updatePhotoSyncPanel().catch(()=>{});}
 }
+async function retryAllPendingUploads(){
+  if(!me){alert("Reconnectez-vous sans supprimer les données locales.");return}
+  if(offlineSyncRunning){toast("Transfert déjà en cours : consultez Diagnostic");return}
+  try{
+    setPhotoSyncStatus("relance manuelle", "Relance de toutes les interventions de ce technicien");
+    if(!navigator.onLine){
+      // iOS peut signaler hors ligne à tort : contrôler le serveur sans utiliser le cache.
+      const session=await api("session",{},{skipOffline:true,timeoutMs:12000});
+      if(!session?.valid)throw new Error("La session n'est plus valide");
+      manualPhotoNetworkValidated=true;
+    }
+    const photos=(await offPhotoMetas()).filter(isOwnQueuedItem);
+    const reports=(await offAll("reports")).filter(isOwnQueuedItem);
+    for(const p of photos){
+      const item=await offGet("photos",p.id);
+      if(item)await offPut("photos",undefined,{...item,next_retry_at:0,sync_state:"local"});
+    }
+    for(const r of reports){
+      const item=await offGet("reports",r.job_id);
+      if(item)await offPut("reports",undefined,{...item,next_retry_at:0,sync_state:"local"});
+    }
+    setPhotoSyncStatus("relance manuelle",`${photos.length} photo(s), ${reports.length} rapport(s) ; traitement immédiat`);
+    await syncOfflineQueue();
+    const pending=(await offPhotoMetas()).filter(isOwnQueuedItem);
+    setPhotoSyncStatus("résultat relance",pending.length?`${pending.length} photo(s) restent en attente. Appuyez sur Diagnostic pour lire l'échec.`:"Toutes les photos de ce profil ont été confirmées.");
+  }catch(e){setPhotoSyncStatus("relance manuelle échouée",String(e?.message||e))}
+  finally{manualPhotoNetworkValidated=false;await refreshGlobalSyncToolbar().catch(()=>{})}
+}
 function sanitizedSyncDiagnostic(data){return JSON.stringify(data,null,2)}
+function scrubSyncMessage(v){
+  const token=localStorage.getItem(TOKEN_KEY);
+  return String(v||"").replace(token?new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),"g"):/a^/g,"[masqué]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi,"Bearer [masqué]").slice(0,260);
+}
+async function copySyncDiagnostic(){
+  const t=$("photoSyncDiagnostic");if(!t)return;
+  try{
+    if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(t.value);toast("Diagnostic copié");return}
+  }catch(e){}
+  t.focus();t.select();t.setSelectionRange(0,t.value.length);
+  try{if(document.execCommand("copy")){toast("Diagnostic copié");return}}catch(e){}
+  alert("La copie automatique est bloquée : sélectionnez le texte du diagnostic et choisissez Copier.");
+}
 async function showPhotoSyncDiagnostic(){
   try{
-    const all=await offPhotoMetas();
-    const relevant=all.filter(p=>String(p.job_id)===String(state.current));
-    const report=await offGet("reports",state.current);
-    const d={version:"3.9.10",plateforme:/iPhone|iPad|iPod/i.test(navigator.userAgent)?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
+    const all=await offPhotoMetas(),allReports=await offAll("reports");
+    const relevant=all.filter(isOwnQueuedItem),reports=allReports.filter(isOwnQueuedItem);
+    const faults=relevant.filter(p=>p.last_error).map(p=>({statut:p.sync_state||"local",etape:p.last_stage||"",tentatives:p.attempts||0,erreur:scrubSyncMessage(p.last_error)}));
+    const rFaults=reports.filter(r=>r.last_error).map(r=>({statut:r.sync_state||"local",etape:r.last_stage||"",tentatives:r.attempts||0,erreur:scrubSyncMessage(r.last_error)}));
+    const d={version:"3.9.11",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
       reseauAnnonce:navigator.onLine,sessionDisponible:!!me,synchronisationEnCours:offlineSyncRunning,
-      heure:new Date().toISOString(),derniereEtape:lastPhotoSyncStatus,
-      rapport:report?{present:true,proprietaireCorrespond:isOwnQueuedItem(report),visiteServeurPresente:!!report.visit_id,statut:report.sync_state||"local",erreur:report.last_error||"",etape:report.last_stage||""}:{present:false},
-      photos:relevant.map(p=>({statut:p.sync_state||"local",proprietaireCorrespond:isOwnQueuedItem(p),visiteServeurPresente:!!p.visit_id,visiteLocalePresente:!!p.local_visit_id,tentatives:p.attempts||0,etape:p.last_stage||"",erreur:p.last_error||""}))};
+      heure:new Date().toISOString(),etapeEnCours:{...lastPhotoSyncStatus,message:scrubSyncMessage(lastPhotoSyncStatus.message)},
+      compteur:{photosEnAttente:relevant.length,photosAutreProfil:all.length-relevant.length,rapportsEnAttente:reports.length,
+        photosSansVisiteServeur:relevant.filter(p=>!p.visit_id).length,
+        photosEnErreur:relevant.filter(p=>p.sync_state==="error").length},
+      photos:relevant.map(p=>({statut:p.sync_state||"local",visiteServeurPresente:!!p.visit_id,visiteLocalePresente:!!p.local_visit_id,
+        tentatives:p.attempts||0,etape:p.last_stage||"",erreur:scrubSyncMessage(p.last_error)})),
+      erreursRapports:rFaults,derniersEvenements:photoSyncJournal.slice(-18).map(x=>({...x,message:scrubSyncMessage(x.message)}))};
     const summary=sanitizedSyncDiagnostic(d);
-    openModal(`<h3>Diagnostic de synchronisation</h3><p class="sub">Ne contient ni photos, ni codes PIN, ni identifiants de session.</p><textarea id="photoSyncDiagnostic" readonly style="min-height:210px;font-size:11px;width:100%;font-family:monospace">${esc(summary)}</textarea><div class="footer-actions"><button class="light" onclick="navigator.clipboard?.writeText(document.getElementById('photoSyncDiagnostic').value).then(()=>toast('Diagnostic copié')).catch(()=>toast('Sélectionnez le texte pour le copier'))">Copier</button><button class="primary" onclick="closeModal()">Fermer</button></div>`);
-  }catch(e){alert("Impossible de lire le diagnostic sans modifier les données : "+String(e?.message||e))}
+    openModal(`<h3>Diagnostic de synchronisation</h3><p class="sub">Accessible depuis tous les écrans. Ne contient ni photos, ni noms de techniciens, ni code PIN, ni jeton.</p><textarea id="photoSyncDiagnostic" readonly style="min-height:240px;font-size:12px;width:100%;font-family:monospace">${esc(summary)}</textarea><div class="footer-actions"><button class="light" type="button" onclick="copySyncDiagnostic()">Copier le diagnostic</button><button class="primary" onclick="closeModal()">Fermer</button></div>`);
+  }catch(e){alert("Impossible de lire le diagnostic : "+String(e?.message||e))}
 }
 async function markFailed(store,rec,err){
   const current=await offGet(store,store==="photos"?rec.id:rec.job_id);
@@ -647,8 +730,9 @@ async function markFailed(store,rec,err){
   if(store==="photos"){const el=document.querySelector(`[data-photo-id="${CSS.escape(current.id)}"]`);if(el){el.classList.add("failed-photo");el.classList.remove("syncing-photo")}}
   const attempts=(current.attempts||0)+1;
   await offPut(store,undefined,{...current,last_stage:rec.last_stage||"",attempts,next_retry_at:Date.now()+syncBackoff(attempts),sync_state:"error",last_error:String(err?.message||err).slice(0,300)});
-  if(store==="reports")setPhotoSyncStatus("rapport",String(err?.message||err));
+  setPhotoSyncStatus(store==="reports"?"échec du rapport":"échec photo "+(rec.last_stage||"envoi"),String(err?.message||err));
   updatePhotoSyncPanel().catch(()=>{});
+  refreshGlobalSyncToolbar().catch(()=>{});
 }
 async function callRemotePhotoExists(p,visitId){
   // A lost register_photo response MUST NOT cause a second row.
@@ -707,7 +791,7 @@ async function proxyUploadIPhonePhoto(photo){
     if(!response.ok){
       if(response.status===404)throw new Error("Fonction dl-technik-photo-proxy non déployée dans Supabase (HTTP 404).");
       if(response.status===401||response.status===403)throw new Error("Accès refusé (HTTP "+response.status+") : vérifier le déploiement de la fonction (verify_jwt=false) et la session.");
-      throw new Error("Serveur photo (HTTP "+response.status+") : "+String(result?.error||result?.message||"réponse non reconnue"));
+      throw new Error("Serveur photo (HTTP "+response.status+")"+(result?.stage?" · "+String(result.stage).slice(0,80):"")+" : "+String(result?.error||result?.message||"réponse non reconnue"));
     }
     if(!result?.ok)throw new Error("Aucune confirmation du serveur photo : "+String(result?.error||"réponse inattendue"));
     return result;
@@ -716,7 +800,7 @@ async function proxyUploadIPhonePhoto(photo){
     throw error;
   }finally{clearTimeout(timer)}
 }
-// V3.9.10 : une photo créée avant confirmation du rapport n'a parfois aucun visit_id.
+// V3.9.11 : une photo créée avant confirmation du rapport n'a parfois aucun visit_id.
 // Elle était auparavant simplement ignorée, sans erreur ni tentative réseau.
 async function recoverQueuedPhotoVisit(p){
   const report=await offGet("reports",p.job_id);
@@ -818,6 +902,7 @@ async function syncOneQueuedPhoto(p,visitId){
 async function completeQueuedPhoto(p,remote){
   await offDelete("photos",p.id);
   setPhotoSyncStatus("photo confirmée", "Réception serveur confirmée");
+  refreshNetworkBadge().catch(()=>{});
   updatePhotoSyncPanel().catch(()=>{});
   if(state.currentDetail?.job?.id===p.job_id){
     const item=(state.currentDetail.photos||[]).find(x=>x.id===p.id);
@@ -1014,7 +1099,7 @@ async function pinSubmit(){
     if(input){input.disabled=false;input.value="";input.focus()}
   }
 }
-function showApp(){$("authRoot").classList.add("hidden");$("appRoot").classList.remove("hidden");setNetwork()}
+function showApp(){$("authRoot").classList.add("hidden");$("appRoot").classList.remove("hidden");setNetwork();refreshGlobalSyncToolbar().catch(()=>{})}
 async function logout(){
   try{await api("logout")}catch(e){}
   localStorage.removeItem(TOKEN_KEY);me=null;state={dashboard:null,jobs:[],done:[],refs:null,current:null,currentDetail:null};await showAuth();
