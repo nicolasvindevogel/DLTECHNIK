@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.11</title>
+<title>DL TECHNIK · V3.9.12</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -344,7 +344,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.11</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.12</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="Synchronisation des photos et diagnostic">
@@ -375,7 +375,7 @@ html,body{background:#f6f8f7;color:#17211c}
 .photo-sync-ok{font-weight:700;color:#087445}
 .syndic-note .photos{margin-top:7px}
 .syndic-note .section-title{font-size:11px;color:#155b89}
-/* V3.9.11 — contrôles toujours visibles, y compris sur Accueil et Terminées. */
+/* V3.9.12 — contrôles toujours visibles, y compris sur Accueil et Terminées. */
 .global-sync-toolbar{max-width:760px;margin:10px 12px 0;padding:10px 12px;border:1px solid #c8dfce;background:#f0f9f3;border-radius:13px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .global-sync-main{flex:1;min-width:165px;color:#174a30;font-size:12px}
 .global-sync-main small{display:block;color:#52695b;font-size:10px;margin-top:3px;overflow-wrap:anywhere;line-height:1.45}
@@ -385,7 +385,7 @@ html,body{background:#f6f8f7;color:#17211c}
 @media(max-width:420px){.global-sync-toolbar{align-items:stretch}.global-sync-actions{width:100%}.global-sync-actions button{flex:1}}
 </style>
 <script>
-/* DL TECHNIK V3.9.11 — diagnostic global accessible sur TOUS les écrans. */
+/* DL TECHNIK V3.9.12 — diagnostic global accessible sur TOUS les écrans. */
 const CFG={url:"https://ccboibbhsztcupfcrndx.supabase.co",key:"sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",fn:"dl-technik-auth"};
 const API=CFG.url+"/functions/v1/"+CFG.fn;
 const TOKEN_KEY="dl_technik_device_token_v1";
@@ -409,7 +409,7 @@ const $=id=>document.getElementById(id);
 let me=null,users=[],pin="",pinStep="login",pinFirst="",selectedUser=null;
 let state={dashboard:null,jobs:[],done:[],refs:null,current:null,currentDetail:null};
 
-const OFFLINE_DB_NAME="dl_technik_offline_v1",OFFLINE_DB_VERSION=1;
+const OFFLINE_DB_NAME="dl_technik_offline_v1",OFFLINE_DB_VERSION=2;
 let offlineSyncRunning=false;
 let manualPhotoNetworkValidated=false;
 let lastPhotoSyncStatus={at:0,stage:"",message:""};
@@ -446,7 +446,7 @@ function offOpen(){
   if(offlineDatabasePromise)return offlineDatabasePromise;
   offlineDatabasePromise=new Promise((resolve,reject)=>{
     const r=indexedDB.open(OFFLINE_DB_NAME,OFFLINE_DB_VERSION);
-    r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("kv"))d.createObjectStore("kv");if(!d.objectStoreNames.contains("reports"))d.createObjectStore("reports",{keyPath:"job_id"});if(!d.objectStoreNames.contains("photos"))d.createObjectStore("photos",{keyPath:"id"})};
+    r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("kv"))d.createObjectStore("kv");if(!d.objectStoreNames.contains("reports"))d.createObjectStore("reports",{keyPath:"job_id"});if(!d.objectStoreNames.contains("photos"))d.createObjectStore("photos",{keyPath:"id"});if(!d.objectStoreNames.contains("photo_sync"))d.createObjectStore("photo_sync",{keyPath:"id"});if(!d.objectStoreNames.contains("photo_binary"))d.createObjectStore("photo_binary",{keyPath:"id"})};
     r.onsuccess=()=>{r.result.onversionchange=()=>{r.result.close();offlineDatabasePromise=null};resolve(r.result)};
     r.onerror=()=>{offlineDatabasePromise=null;reject(r.error)};
     r.onblocked=()=>{offlineDatabasePromise=null;reject(new Error("Fermez les autres onglets DL TECHNIK puis réessayez."))};
@@ -459,29 +459,64 @@ async function offPut(store,key,value){
     tx.oncomplete=()=>resolve(value);tx.onabort=()=>reject(tx.error||new Error("Stockage local indisponible"));tx.onerror=()=>reject(tx.error);
   });
 }
-async function offGet(store,key){const d=await offOpen();return new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
-async function offDelete(store,key){const d=await offOpen();return new Promise((resolve,reject)=>{const tx=d.transaction(store,"readwrite");tx.objectStore(store).delete(key);tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error||new Error("Suppression locale impossible"));tx.onerror=()=>reject(tx.error)})}
+async function offGet(store,key){
+  const d=await offOpen();
+  const original=await new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
+  // V3.9.12 : on lit les états de synchronisation séparément, jamais en réécrivant les Blob iOS.
+  if(store==="photos"&&original){
+    const [status,binary]=await Promise.all([offGet("photo_sync",key),offGet("photo_binary",key)]);
+    return {...original,...(binary?.bytes?{bytes:binary.bytes}:{}),...(status||{})};
+  }
+  return original;
+}
+async function offDelete(store,key){const d=await offOpen();return new Promise((resolve,reject)=>{const stores=store==="photos"?["photos","photo_sync","photo_binary"]:[store];const tx=d.transaction(stores,"readwrite");tx.objectStore(store).delete(key);if(store==="photos"){tx.objectStore("photo_sync").delete(key);tx.objectStore("photo_binary").delete(key)}tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error||new Error("Suppression locale impossible"));tx.onerror=()=>reject(tx.error)})}
+async function offCreatePhoto(rec,bytes){
+  // Métadonnées et octets enregistrés ensemble, en une seule transaction atomique.
+  // Les parcours des compteurs ne chargent jamais le fichier des nouvelles photos.
+  const d=await offOpen();return new Promise((resolve,reject)=>{
+    const tx=d.transaction(["photos","photo_binary"],"readwrite");
+    const {blob,bytes:ignored,...metadata}=rec;
+    tx.objectStore("photos").put(metadata);
+    tx.objectStore("photo_binary").put({id:rec.id,bytes});
+    tx.oncomplete=()=>resolve(rec);
+    tx.onabort=()=>reject(tx.error||new Error("Enregistrement local des octets interrompu"));
+    tx.onerror=()=>reject(tx.error||new Error("Impossible de conserver la photo en mémoire locale"));
+  });
+}
+async function offUpdatePhotoStatus(rec){
+  // Stockage petit et indépendant du fichier ; aucun Blob ni ArrayBuffer copié à chaque tentative.
+  const {blob,bytes,...meta}=rec;
+  if(!meta?.id)throw new Error("Identifiant local de photo manquant");
+  await offPut("photo_sync",undefined,meta);
+}
+function queuedPhotoBlob(rec){
+  if(rec?.bytes instanceof ArrayBuffer)return new Blob([rec.bytes],{type:rec.mime_type||"image/jpeg"});
+  if(ArrayBuffer.isView(rec?.bytes))return new Blob([rec.bytes],{type:rec.mime_type||"image/jpeg"});
+  return rec?.blob instanceof Blob?rec.blob:null;
+}
 async function offAll(store){const d=await offOpen();return new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).getAll();r.onsuccess=()=>resolve(r.result||[]);r.onerror=()=>reject(r.error)})}
 async function offCount(store){const d=await offOpen();return new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).count();r.onsuccess=()=>resolve(r.result||0);r.onerror=()=>reject(r.error)})}
 function offCacheKey(action,payload={}){return `api:${action}:${JSON.stringify(payload,Object.keys(payload).sort())}`}
 async function offCacheApi(action,payload,value){try{await offPut("kv",offCacheKey(action,payload),{ts:Date.now(),value})}catch(e){}}
 async function offReadApi(action,payload){try{return (await offGet("kv",offCacheKey(action,payload)))?.value||null}catch{return null}}
-// V3.9.11 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
+// V3.9.12 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
 // Les photos et leur contenu restent inchangés dans IndexedDB (version 1).
 async function offPhotoMetas(){
   const d=await offOpen();
-  return new Promise((resolve,reject)=>{
+  const rows=await new Promise((resolve,reject)=>{
     const tx=d.transaction("photos","readonly"),req=tx.objectStore("photos").openCursor();
-    const rows=[];
+    const items=[];
     req.onsuccess=()=>{
       const cursor=req.result;
-      if(!cursor){resolve(rows);return}
-      const {blob,...metadata}=cursor.value;
-      rows.push(metadata);cursor.continue();
+      if(!cursor){resolve(items);return}
+      const {blob,bytes,...metadata}=cursor.value;
+      items.push({...metadata,photoStorage:metadata.storage_kind==="octets"||bytes instanceof ArrayBuffer?"octets":blob instanceof Blob?"ancien Blob":"inconnu"});cursor.continue();
     };
     req.onerror=()=>reject(req.error||new Error("Lecture des photos impossible"));
     tx.onabort=()=>reject(tx.error||new Error("Stockage photos indisponible"));
   });
+  const statuses=new Map((await offAll("photo_sync")).map(x=>[String(x.id),x]));
+  return rows.map(r=>({...r,...(statuses.get(String(r.id))||{})}));
 }
 async function offPendingCount(){const [r,p]=await Promise.all([offAll("reports"),offPhotoMetas()]);return r.filter(isOwnQueuedItem).length+p.filter(isOwnQueuedItem).length}
 async function refreshNetworkBadge(){
@@ -541,11 +576,15 @@ async function writeQueuedReport(entry){
 async function offQueuePhoto(file,type,visitId){
   const id=`local-photo-${crypto.randomUUID?.()||Date.now()+"-"+Math.random().toString(36).slice(2)}`;
   const blob=file instanceof Blob?file:new Blob([file],{type:file.type||"image/jpeg"});
+  // iOS/WebKit : conserver un instantané binaire autonome, plutôt qu'un Blob lié
+  // au sélecteur Photos ou à une ressource temporaire. Lecture AVANT de fermer l'input.
+  const bytes=await readPhotoBlobBytes(blob,"capture");
+  if(!bytes?.byteLength)throw new Error("La photo sélectionnée n'a pas pu être lue. Elle n'a pas été enregistrée : veuillez la sélectionner à nouveau.");
   const rec={id,job_id:state.current,technician_id:currentTechnicianId(),visit_id:visitId&&!String(visitId).startsWith("local-")?visitId:null,
-    local_visit_id:visitId||null,photo_type:type,blob,mime_type:blob.type||file.type||"image/jpeg",original_filename:file.name||`photo-${Date.now()}.jpg`,created_at:Date.now(),attempts:0,next_retry_at:0,sync_state:"local"};
-  // L'original est écrit en transaction IndexedDB AVANT tout transfert.
-  await offPut("photos",undefined,rec);
-  const localUrl=URL.createObjectURL(blob);
+    local_visit_id:visitId||null,photo_type:type,storage_kind:"octets",mime_type:blob.type||file.type||"image/jpeg",original_filename:file.name||`photo-${Date.now()}.jpg`,created_at:Date.now(),attempts:0,next_retry_at:0,sync_state:"local"};
+  // Les octets sont séparés du compteur, puis restent immuables jusqu'à confirmation serveur.
+  await offCreatePhoto(rec,bytes);
+  const localUrl=URL.createObjectURL(new Blob([bytes],{type:rec.mime_type}));
   if(state.currentDetail && String(state.current)===String(rec.job_id)){
     state.currentDetail.photos=state.currentDetail.photos||[];
     state.currentDetail.photos.push({id,visit_id:visitId,photo_type:type,signed_url:localUrl,_offline:true,_syncing:false});
@@ -602,9 +641,10 @@ async function offHydrateLocalPhotos(detail){
   for(const p of queued){
     // On lit uniquement la photo du rapport actuellement ouvert.
     const current=await offGet("photos",p.id);
-    if(!current?.blob)continue;
+    const image=queuedPhotoBlob(current);
+    if(!image)continue;
     const visitId=p.visit_id||pending?.visit_id||editable?.id||p.local_visit_id||`local-visit-${jobId}`;
-    detail.photos.push({id:p.id,visit_id:visitId,photo_type:p.photo_type,signed_url:URL.createObjectURL(current.blob),_offline:true,_syncing:p.sync_state==="uploading",_error:p.sync_state==="error"});
+    detail.photos.push({id:p.id,visit_id:visitId,photo_type:p.photo_type,signed_url:URL.createObjectURL(image),_offline:true,_syncing:p.sync_state==="uploading",_error:p.sync_state==="error"});
   }
   return detail;
 }
@@ -649,9 +689,9 @@ async function retryPendingPhotoUploads(){
     setPhotoSyncStatus("relance", `${items.length} photo(s) repérée(s) dans le stockage local`);
     for(const p of items){
       const actual=await offGet("photos",p.id);
-      if(actual)await offPut("photos",undefined,{...actual,next_retry_at:0,sync_state:"local",last_error:"",last_stage:""});
+      if(actual)await offUpdatePhotoStatus({...actual,next_retry_at:0,sync_state:"local",last_error:"",last_stage:""});
     }
-    // Importante correction V3.9.11 : un rapport échoué bloquait toutes les photos,
+    // Importante correction V3.9.12 : un rapport échoué bloquait toutes les photos,
     // mais son erreur et son délai de reprise n'étaient pas visibles dans le panneau.
     const report=await offGet("reports",state.current);
     if(report&&isOwnQueuedItem(report))await offPut("reports",undefined,{...report,next_retry_at:0,sync_state:"local",last_error:""});
@@ -677,7 +717,7 @@ async function retryAllPendingUploads(){
     const reports=(await offAll("reports")).filter(isOwnQueuedItem);
     for(const p of photos){
       const item=await offGet("photos",p.id);
-      if(item)await offPut("photos",undefined,{...item,next_retry_at:0,sync_state:"local"});
+      if(item)await offUpdatePhotoStatus({...item,next_retry_at:0,sync_state:"local"});
     }
     for(const r of reports){
       const item=await offGet("reports",r.job_id);
@@ -711,13 +751,13 @@ async function showPhotoSyncDiagnostic(){
     const relevant=all.filter(isOwnQueuedItem),reports=allReports.filter(isOwnQueuedItem);
     const faults=relevant.filter(p=>p.last_error).map(p=>({statut:p.sync_state||"local",etape:p.last_stage||"",tentatives:p.attempts||0,erreur:scrubSyncMessage(p.last_error)}));
     const rFaults=reports.filter(r=>r.last_error).map(r=>({statut:r.sync_state||"local",etape:r.last_stage||"",tentatives:r.attempts||0,erreur:scrubSyncMessage(r.last_error)}));
-    const d={version:"3.9.11",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
+    const d={version:"3.9.12",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
       reseauAnnonce:navigator.onLine,sessionDisponible:!!me,synchronisationEnCours:offlineSyncRunning,
       heure:new Date().toISOString(),etapeEnCours:{...lastPhotoSyncStatus,message:scrubSyncMessage(lastPhotoSyncStatus.message)},
       compteur:{photosEnAttente:relevant.length,photosAutreProfil:all.length-relevant.length,rapportsEnAttente:reports.length,
         photosSansVisiteServeur:relevant.filter(p=>!p.visit_id).length,
         photosEnErreur:relevant.filter(p=>p.sync_state==="error").length},
-      photos:relevant.map(p=>({statut:p.sync_state||"local",visiteServeurPresente:!!p.visit_id,visiteLocalePresente:!!p.local_visit_id,
+      photos:relevant.map(p=>({statut:p.sync_state||"local",stockage:p.photoStorage||"ancien",visiteServeurPresente:!!p.visit_id,visiteLocalePresente:!!p.local_visit_id,
         tentatives:p.attempts||0,etape:p.last_stage||"",erreur:scrubSyncMessage(p.last_error)})),
       erreursRapports:rFaults,derniersEvenements:photoSyncJournal.slice(-18).map(x=>({...x,message:scrubSyncMessage(x.message)}))};
     const summary=sanitizedSyncDiagnostic(d);
@@ -729,7 +769,7 @@ async function markFailed(store,rec,err){
   if(!current)return;
   if(store==="photos"){const el=document.querySelector(`[data-photo-id="${CSS.escape(current.id)}"]`);if(el){el.classList.add("failed-photo");el.classList.remove("syncing-photo")}}
   const attempts=(current.attempts||0)+1;
-  await offPut(store,undefined,{...current,last_stage:rec.last_stage||"",attempts,next_retry_at:Date.now()+syncBackoff(attempts),sync_state:"error",last_error:String(err?.message||err).slice(0,300)});
+  await (store==="photos"?offUpdatePhotoStatus({...current,last_stage:rec.last_stage||"",attempts,next_retry_at:Date.now()+syncBackoff(attempts),sync_state:"error",last_error:String(err?.message||err).slice(0,300)}):offPut(store,undefined,{...current,last_stage:rec.last_stage||"",attempts,next_retry_at:Date.now()+syncBackoff(attempts),sync_state:"error",last_error:String(err?.message||err).slice(0,300)}));
   setPhotoSyncStatus(store==="reports"?"échec du rapport":"échec photo "+(rec.last_stage||"envoi"),String(err?.message||err));
   updatePhotoSyncPanel().catch(()=>{});
   refreshGlobalSyncToolbar().catch(()=>{});
@@ -743,6 +783,31 @@ async function callRemotePhotoExists(p,visitId){
 function isIOSPhotoDevice(){return /iPad|iPhone|iPod/.test(navigator.userAgent)||
   (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1)}
 const PHOTO_PROXY_MAX_BYTES=4*1024*1024;
+async function readPhotoBlobBytes(blob,context="ancienne photo"){
+  if(!(blob instanceof Blob))throw new Error("Fichier photo local absent.");
+  const reasons=[];
+  const attempt=async(fn)=>{try{const bytes=await fn();if(bytes instanceof ArrayBuffer&&bytes.byteLength>0)return bytes;throw new Error("Fichier vide")}catch(e){reasons.push(String(e?.name||"Erreur")+": "+String(e?.message||e));return null}};
+  let bytes=await attempt(()=>blob.arrayBuffer());if(bytes)return bytes;
+  bytes=await attempt(()=>new Promise((resolve,reject)=>{
+    const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error||new Error("Erreur FileReader"));r.onabort=()=>reject(new Error("Lecture interrompue"));r.readAsArrayBuffer(blob);
+  }));if(bytes)return bytes;
+  // Dernière tentative pour les anciens Blob IndexedDB d'iOS.
+  bytes=await attempt(async()=>{const part=blob.slice(0,blob.size,blob.type);return await part.arrayBuffer()});if(bytes)return bytes;
+  bytes=await attempt(async()=>{const u=URL.createObjectURL(blob);try{const response=await fetch(u);if(!response.ok)throw new Error("URL locale non lisible");return await response.arrayBuffer()}finally{URL.revokeObjectURL(u)}});if(bytes)return bytes;
+  const detail=reasons.slice(0,2).join(" ; ");
+  throw new Error("Photo locale iPhone illisible ("+context+"). Original conservé. "+detail.slice(0,100));
+}
+async function readQueuedPhotoBytes(rec){
+  if(rec?.bytes instanceof ArrayBuffer&&rec.bytes.byteLength)return rec.bytes;
+  if(ArrayBuffer.isView(rec?.bytes)&&rec.bytes.byteLength)return rec.bytes.buffer.slice(rec.bytes.byteOffset,rec.bytes.byteOffset+rec.bytes.byteLength);
+  if(rec?.blob instanceof Blob)return readPhotoBlobBytes(rec.blob,"ancien stockage IndexedDB");
+  throw new Error("Fichier original absent du stockage local. Vérifier la galerie iPhone, sans supprimer l'entrée en attente.");
+}
+function arrayBufferBase64(buffer){
+  const bytes=new Uint8Array(buffer);const chunks=[];const size=8192;
+  for(let i=0;i<bytes.length;i+=size)chunks.push(String.fromCharCode(...bytes.subarray(i,i+size)));
+  return btoa(chunks.join(""));
+}
 async function prepareIPhoneProxyPhoto(file){
   if(file.size<=PHOTO_PROXY_MAX_BYTES)return file;
   // Nouvelle compression forcée pour les anciennes photos très volumineuses.
@@ -751,7 +816,7 @@ async function prepareIPhoneProxyPhoto(file){
     let drawable,width,height;
     try{bitmap=await createImageBitmap(file);drawable=bitmap;width=bitmap.width;height=bitmap.height}
     catch(_){url=URL.createObjectURL(file);const img=new Image();
-      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=reject;img.src=url});
+      await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error("Décodage de la photo impossible (format ou données locales)."));img.src=url});
       drawable=img;width=img.naturalWidth;height=img.naturalHeight}
     if(!width||!height)throw new Error("Dimensions indisponibles");
     const scale=Math.min(1,1300/Math.max(width,height));
@@ -764,19 +829,14 @@ async function prepareIPhoneProxyPhoto(file){
   }catch(e){throw new Error("Image trop volumineuse pour l'envoi iPhone (limite 4 Mo) : "+String(e.message||e))}
   finally{bitmap?.close?.();if(url)URL.revokeObjectURL(url)}
 }
-function imageBlobBase64(blob){
-  return new Promise((resolve,reject)=>{
-    const reader=new FileReader();
-    reader.onerror=()=>reject(new Error("Lecture de la photo sur iPhone impossible."));
-    reader.onabort=()=>reject(new Error("Lecture de la photo interrompue."));
-    reader.onload=()=>{
-      const result=String(reader.result||"");const pos=result.indexOf(",");
-      if(pos<0||!result.slice(pos+1))reject(new Error("La photo est vide après conversion locale."));
-      else resolve(result.slice(pos+1));
-    };
-    reader.readAsDataURL(blob);
-  });
+async function imageBlobBase64(blob){
+  // FileReader.readAsDataURL échouait sur certains Blob iPhone ; utiliser
+  // l'ArrayBuffer et encoder les octets directement, sans lecteur d'URL.
+  const bytes=await readPhotoBlobBytes(blob,"encodage pour le serveur");
+  if(bytes.byteLength>PHOTO_PROXY_MAX_BYTES)throw new Error("Photo iPhone supérieure à 4 Mo après compression.");
+  return arrayBufferBase64(bytes);
 }
+
 async function proxyUploadIPhonePhoto(photo){
   const token=localStorage.getItem(TOKEN_KEY);
   if(!token)throw new Error("Session iPhone absente. Photos conservées; reconnectez-vous.");
@@ -800,7 +860,7 @@ async function proxyUploadIPhonePhoto(photo){
     throw error;
   }finally{clearTimeout(timer)}
 }
-// V3.9.11 : une photo créée avant confirmation du rapport n'a parfois aucun visit_id.
+// V3.9.12 : une photo créée avant confirmation du rapport n'a parfois aucun visit_id.
 // Elle était auparavant simplement ignorée, sans erreur ni tentative réseau.
 async function recoverQueuedPhotoVisit(p){
   const report=await offGet("reports",p.job_id);
@@ -819,7 +879,7 @@ async function recoverQueuedPhotoVisit(p){
   if(!visitId)throw new Error("Le serveur n'a pas fourni l'identifiant du rapport.");
   // Conserver les autres champs des photos ; aucun blob n'est modifié/supprimé.
   const pending=(await offPhotoMetas()).filter(x=>String(x.job_id)===String(p.job_id)&&!x.visit_id&&isOwnQueuedItem(x));
-  for(const item of pending){const original=await offGet("photos",item.id);if(original&&!original.visit_id)await offPut("photos",undefined,{...original,visit_id:visitId})}
+  for(const item of pending){const original=await offGet("photos",item.id);if(original&&!original.visit_id)await offUpdatePhotoStatus({...original,visit_id:visitId})}
   if(report&&!report.visit_id){const latest=await offGet("reports",p.job_id);if(latest&&!latest.visit_id)await offPut("reports",undefined,{...latest,visit_id:visitId,next_retry_at:0})}
   setPhotoSyncStatus("rapport serveur", "Passage retrouvé ; reprise du transfert des photos");
   return visitId;
@@ -835,7 +895,7 @@ async function syncOneQueuedPhoto(p,visitId){
   let stage="préparation";
   try{
     setPhotoSyncStatus("photo", "Préparation du transfert");
-    await offPut("photos",undefined,{...current,sync_state:"uploading"});
+    await offUpdatePhotoStatus({...current,sync_state:"uploading"});
     updatePhotoSyncPanel().catch(()=>{});
     const uploadingEl=document.querySelector(`[data-photo-id="${CSS.escape(current.id)}"]`);if(uploadingEl){uploadingEl.classList.add("syncing-photo");uploadingEl.classList.remove("failed-photo")}
     // Reuse one signed path, even after network timeouts, instead of creating duplicates.
@@ -845,13 +905,17 @@ async function syncOneQueuedPhoto(p,visitId){
     }
     // Garder le fichier original en IndexedDB tant que l'envoi n'est PAS confirmé.
     // La compression se fait uniquement pour le transfert, jamais à la capture.
-    stage="lecture / compression locale";
+    stage="lecture du fichier original";
     const sourceMime=current.mime_type||"image/jpeg";
-    const sourceFile=new File([current.blob],current.original_filename||"photo.jpg",{type:sourceMime});
-    const file=await compressImage(sourceFile);
+    const sourceBytes=await readQueuedPhotoBytes(current);
+    const sourceFile=new File([sourceBytes],current.original_filename||"photo.jpg",{type:sourceMime});
+    const ios=isIOSPhotoDevice();
+    // iOS : ne pas décoder/recompresser une image déjà en dessous de 4 Mo.
+    // Android conserve le chemin de compression qui fonctionne déjà.
+    stage="lecture / compression locale";
+    const file=ios?sourceFile:await compressImage(sourceFile);
     const mime=file.type||sourceMime;
     const remoteType=current.photo_type==="syndic"?"other":current.photo_type;
-    const ios=isIOSPhotoDevice();
     if(ios){
       // V3.9.9: utiliser l'API JSON qui sait déjà transférer les rapports sur iOS.
       // Le serveur effectue lui-même l'écriture Storage, sans transfert signé direct Safari.
@@ -874,7 +938,7 @@ async function syncOneQueuedPhoto(p,visitId){
       stage="autorisation serveur";
       const sign=await api("photo_upload_url",{visit_id:visitId,photo_type:remoteType,mime_type:mime},{skipOffline:true,timeoutMs:20000});
       current.storage_path=sign.path;current.signed_token=sign.token;
-      await offPut("photos",undefined,current);
+      await offUpdatePhotoStatus(current);
     }
     const uploadBody=file;
     stage="transfert Storage";
@@ -884,7 +948,7 @@ async function syncOneQueuedPhoto(p,visitId){
     if(up.error&&!/already exists|duplicate|conflict|409/i.test(String(up.error.message||up.error))){
       if(/expired|jwt|unauthori|invalid token|403/i.test(String(up.error.message||up.error))){
         current.storage_path=null;current.signed_token=null;
-        await offPut("photos",undefined,current);
+        await offUpdatePhotoStatus(current);
       }
       throw new Error(`Transfert photo : ${String(up.error.message||up.error)}`);
     }
@@ -1648,13 +1712,16 @@ function openNativePhotoPicker(type,visitId,camera=false){
   input.addEventListener("cancel",()=>input.remove(),{once:true});
   input.addEventListener("change",async()=>{
     const files=Array.from(input.files||[]);
-    input.remove();
-    if(!files.length)return;
+    if(!files.length){input.remove();return}
     let saved=0;
-    for(const file of files){
-      try{await uploadPhoto(file,type,visitId);saved++}
-      catch(e){alert(`Enregistrement local impossible (${file.name}): ${e.message}`)}
-    }
+    try{
+      // Safari peut rendre les objets File illisibles après détachement de l'input.
+      // Garder l'input dans le document jusqu'à la fin des captures binaires.
+      for(const file of files){
+        try{await uploadPhoto(file,type,visitId);saved++}
+        catch(e){alert(`Enregistrement local impossible (${file.name}): ${e.message}`)}
+      }
+    }finally{input.remove()}
     if(saved)toast(`${saved} photo${saved>1?"s":""} sécurisée${saved>1?"s":""} localement`);
   },{once:true});
   try{input.click()}catch(e){input.remove();alert("Impossible d'ouvrir le sélecteur photo : "+e.message)}
