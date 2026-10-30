@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.13</title>
+<title>DL TECHNIK · V3.9.14</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -344,12 +344,12 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.13</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.14</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
-    <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="Synchronisation des photos et diagnostic">
-      <div class="global-sync-main"><b id="globalSyncTitle">Synchronisation des photos</b><small id="globalSyncInfo">Vérification des fichiers locaux…</small></div>
-      <div class="global-sync-actions"><button class="light" type="button" onclick="retryAllPendingUploads()">↻ Relancer</button><button class="light global-diagnostic-btn" type="button" onclick="showPhotoSyncDiagnostic()">Diagnostic</button></div>
+    <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="État de la synchronisation automatique">
+      <div class="global-sync-main"><b id="globalSyncTitle">Envoi automatique</b><small id="globalSyncInfo">Les photos et rapports sont transmis pendant l'utilisation de l'application.</small></div>
+      <div id="globalSyncActions" class="global-sync-actions hidden"><button class="light" type="button" onclick="retryAllPendingUploads()">↻ Relancer</button><button class="light global-diagnostic-btn" type="button" onclick="showPhotoSyncDiagnostic()">Diagnostic</button></div>
     </section>
     <main id="content" class="content"></main>
   </div>
@@ -375,7 +375,7 @@ html,body{background:#f6f8f7;color:#17211c}
 .photo-sync-ok{font-weight:700;color:#087445}
 .syndic-note .photos{margin-top:7px}
 .syndic-note .section-title{font-size:11px;color:#155b89}
-/* V3.9.13 — contrôles toujours visibles, y compris sur Accueil et Terminées. */
+/* V3.9.14 — état visible sur tous les écrans ; outils de diagnostic selon profil. */
 .global-sync-toolbar{max-width:760px;margin:10px 12px 0;padding:10px 12px;border:1px solid #c8dfce;background:#f0f9f3;border-radius:13px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .global-sync-main{flex:1;min-width:165px;color:#174a30;font-size:12px}
 .global-sync-main small{display:block;color:#52695b;font-size:10px;margin-top:3px;overflow-wrap:anywhere;line-height:1.45}
@@ -385,7 +385,7 @@ html,body{background:#f6f8f7;color:#17211c}
 @media(max-width:420px){.global-sync-toolbar{align-items:stretch}.global-sync-actions{width:100%}.global-sync-actions button{flex:1}}
 </style>
 <script>
-/* DL TECHNIK V3.9.13 — diagnostic global accessible sur TOUS les écrans. */
+/* DL TECHNIK V3.9.14 — synchronisation automatique non bloquante ; diagnostics Nicolas Test. */
 const CFG={url:"https://ccboibbhsztcupfcrndx.supabase.co",key:"sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",fn:"dl-technik-auth"};
 const API=CFG.url+"/functions/v1/"+CFG.fn;
 const TOKEN_KEY="dl_technik_device_token_v1";
@@ -431,6 +431,21 @@ const SYNC_MAX_DELAY=300000;
 const SYNDIC_PHOTO_CAPTION="Signalement au syndic";
 function isSyndicPhoto(p){return p?.photo_type==="syndic"||(p?.photo_type==="other"&&/^signalement au syndic/i.test(String(p?.caption||"")))}
 const isOwnQueuedItem=r=>!!me&&(!r.technician_id||String(r.technician_id)===String(me?.technician_id||me?.id||""));
+// Les outils de diagnostic sont une option d'interface réservée au profil Nicolas Test.
+// L'identification est issue de la session serveur (jamais du navigateur ou d'un paramètre URL).
+function canUseSyncDiagnostics(){
+  const name=String(me?.display_name||me?.full_name||me?.name||"")
+    .normalize("NFKC").trim().replace(/\s+/g," ").toLocaleLowerCase("fr-BE");
+  return name==="nicolas test";
+}
+let activeTechnikView="home";
+const queuedSubmitIds=new Set();
+function applySyncToolsVisibility(){
+  const enabled=canUseSyncDiagnostics();
+  const toolbar=$("globalSyncToolbar"),buttons=$("globalSyncActions");
+  if(toolbar)toolbar.classList.toggle("sync-toolbar-simple",!enabled);
+  if(buttons)buttons.classList.toggle("hidden",!enabled);
+}
 function syncBackoff(attempt=1){return Math.min(SYNC_MAX_DELAY,4000*Math.pow(2,Math.min(6,Math.max(0,attempt-1))))+Math.floor(Math.random()*900)}
 function queueRetry(){
   if(offlineRetryTimer)clearTimeout(offlineRetryTimer);
@@ -463,7 +478,7 @@ async function offPut(store,key,value){
 async function offGet(store,key){
   const d=await offOpen();
   const original=await new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
-  // V3.9.13 : on lit les états de synchronisation séparément, jamais en réécrivant les Blob iOS.
+  // V3.9.14 : on lit les états de synchronisation séparément, jamais en réécrivant les Blob iOS.
   if(store==="photos"&&original){
     const [status,binary]=await Promise.all([offGet("photo_sync",key),offGet("photo_binary",key)]);
     return {...original,...(binary?.bytes?{bytes:binary.bytes}:{}),...(status||{})};
@@ -500,7 +515,7 @@ async function offCount(store){const d=await offOpen();return new Promise((resol
 function offCacheKey(action,payload={}){return `api:${action}:${JSON.stringify(payload,Object.keys(payload).sort())}`}
 async function offCacheApi(action,payload,value){try{await offPut("kv",offCacheKey(action,payload),{ts:Date.now(),value})}catch(e){}}
 async function offReadApi(action,payload){try{return (await offGet("kv",offCacheKey(action,payload)))?.value||null}catch{return null}}
-// V3.9.13 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
+// V3.9.14 — parcours des métadonnées sans charger tous les Blob iOS dans getAll().
 // Les photos et leur contenu restent inchangés dans IndexedDB (version 1).
 async function offPhotoMetas(){
   const d=await offOpen();
@@ -534,15 +549,29 @@ async function refreshNetworkBadge(){
 async function refreshGlobalSyncToolbar(){
   const title=$("globalSyncTitle"),info=$("globalSyncInfo");
   if(!title||!info||!me)return;
+  applySyncToolsVisibility();
   try{
     const [photos,reports]=await Promise.all([offPhotoMetas(),offAll("reports")]);
     const mine=photos.filter(isOwnQueuedItem),queuedReports=reports.filter(isOwnQueuedItem);
+    queuedSubmitIds.clear();
+    queuedReports.filter(r=>r.submit).forEach(r=>queuedSubmitIds.add(String(r.job_id)));
     const errors=mine.filter(p=>p.sync_state==="error");
     const lastError=errors.find(p=>p.last_error)?.last_error||queuedReports.find(r=>r.last_error)?.last_error||"";
-    title.textContent=`📷 ${mine.length} photo(s) à synchroniser · ${queuedReports.length} rapport(s)`;
-    info.textContent=lastError?`Dernière erreur : ${String(lastError).slice(0,120)}`:
-      lastPhotoSyncStatus.at?`Dernière étape : ${lastPhotoSyncStatus.stage}${lastPhotoSyncStatus.message?" — "+lastPhotoSyncStatus.message:""}`:
-      mine.length?"Ouvrez Diagnostic pour voir pourquoi les photos restent en attente.":"Aucune photo de ce profil en attente";
+    if(canUseSyncDiagnostics()){
+      title.textContent=`📷 ${mine.length} photo(s) à synchroniser · ${queuedReports.length} rapport(s)`;
+      info.textContent=lastError?`Dernière erreur : ${String(lastError).slice(0,120)}`:
+        lastPhotoSyncStatus.at?`Dernière étape : ${lastPhotoSyncStatus.stage}${lastPhotoSyncStatus.message?" — "+lastPhotoSyncStatus.message:""}`:
+        mine.length?"Ouvrez Diagnostic pour examiner la file d'attente.":"Aucune photo de ce profil en attente";
+    }else{
+      // Messages opérationnels utiles, sans exposer le diagnostic ni les outils manuels.
+      title.textContent=queuedSubmitIds.size?`⏳ ${queuedSubmitIds.size} rapport(s) en cours de transmission`:
+        mine.length?`📷 ${mine.length} photo(s) en cours de synchronisation`:"✓ Envois à jour";
+      info.textContent=!photoNetworkReady()?"Transmission en attente de connexion, reprise automatique à la réouverture.":
+        offlineSyncRunning?"Envoi automatique en cours. Vous pouvez continuer vos interventions.":
+        lastError?"Des fichiers seront réessayés automatiquement pendant l'utilisation de l'application.":
+        queuedSubmitIds.size||mine.length?"Envoi automatique pendant l'utilisation de l'application, sans attente nécessaire.":
+        "Aucun transfert en attente.";
+    }
   }catch(error){info.textContent="Lecture de la file locale impossible : "+String(error?.message||error).slice(0,150)}
 }
 function offNetworkError(e){const s=String(e?.message||e||"").toLowerCase();return !navigator.onLine||abortIsNetworkError(e)||s.includes("failed to fetch")||s.includes("networkerror")||s.includes("load failed")||s.includes("timeout")||s.includes("timed out")||s.includes("abort")}
@@ -668,6 +697,12 @@ async function updatePhotoSyncPanel(){
     !me?'Session non prête.':!photoNetworkReady()?'Le téléphone indique une connexion hors ligne.':
     missingVisit?`${missingVisit} photo(s) sans identifiant de rapport serveur : récupération à tenter.`:
     !last?'Aucune tentative détectée depuis l’ouverture de cette session.':' ';
+  if(!canUseSyncDiagnostics()){
+    el.innerHTML=`<div><b>📷 ${items.length} photo${items.length>1?'s':''} en attente${details}</b>
+      <p>Envoi automatique pendant l'utilisation de DL TECHNIK. Vous pouvez continuer les interventions : les originaux restent conservés sur ce téléphone jusqu'à confirmation serveur.</p>
+      ${!photoNetworkReady()?`<small>Hors ligne : reprise automatique à la connexion.</small>`:''}</div>`;
+    return;
+  }
   el.innerHTML=`<div><b>📷 ${items.length} photo${items.length>1?'s':''} en attente de confirmation${details}</b>
     <p>Photos originales conservées sur cet iPhone jusqu’à confirmation serveur.</p>
     ${context.trim()?`<small>${esc(context)}</small>`:''}
@@ -677,6 +712,7 @@ async function updatePhotoSyncPanel(){
     <div class="sync-panel-actions"><button class="light" type="button" onclick="retryPendingPhotoUploads()">↻ Relancer l’envoi</button><button class="light" type="button" onclick="showPhotoSyncDiagnostic()">Diagnostic</button></div>`;
 }
 async function retryPendingPhotoUploads(){
+  if(!canUseSyncDiagnostics())return;
   try{
     if(offlineSyncRunning){setPhotoSyncStatus("file", "Un transfert est déjà en cours.");toast("Synchronisation déjà en cours");return}
     if(!me){setPhotoSyncStatus("session", "Reconnectez-vous à votre profil sans effacer les données.");return}
@@ -692,7 +728,7 @@ async function retryPendingPhotoUploads(){
       const actual=await offGet("photos",p.id);
       if(actual)await offUpdatePhotoStatus({...actual,next_retry_at:0,sync_state:"local",last_error:"",last_stage:""});
     }
-    // Importante correction V3.9.13 : un rapport échoué bloquait toutes les photos,
+    // Importante correction V3.9.14 : un rapport échoué bloquait toutes les photos,
     // mais son erreur et son délai de reprise n'étaient pas visibles dans le panneau.
     const report=await offGet("reports",state.current);
     if(report&&isOwnQueuedItem(report))await offPut("reports",undefined,{...report,next_retry_at:0,sync_state:"local",last_error:""});
@@ -704,6 +740,7 @@ async function retryPendingPhotoUploads(){
   finally{manualPhotoNetworkValidated=false;updatePhotoSyncPanel().catch(()=>{});}
 }
 async function retryAllPendingUploads(){
+  if(!canUseSyncDiagnostics())return;
   if(!me){alert("Reconnectez-vous sans supprimer les données locales.");return}
   if(offlineSyncRunning){toast("Transfert déjà en cours : consultez Diagnostic");return}
   try{
@@ -747,12 +784,13 @@ async function copySyncDiagnostic(){
   alert("La copie automatique est bloquée : sélectionnez le texte du diagnostic et choisissez Copier.");
 }
 async function showPhotoSyncDiagnostic(){
+  if(!canUseSyncDiagnostics())return;
   try{
     const all=await offPhotoMetas(),allReports=await offAll("reports");
     const relevant=all.filter(isOwnQueuedItem),reports=allReports.filter(isOwnQueuedItem);
     const faults=relevant.filter(p=>p.last_error).map(p=>({statut:p.sync_state||"local",etape:p.last_stage||"",tentatives:p.attempts||0,erreur:scrubSyncMessage(p.last_error)}));
     const rFaults=reports.filter(r=>r.last_error).map(r=>({statut:r.sync_state||"local",etape:r.last_stage||"",tentatives:r.attempts||0,erreur:scrubSyncMessage(r.last_error)}));
-    const d={version:"3.9.13",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
+    const d={version:"3.9.14",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
       reseauAnnonce:navigator.onLine,sessionDisponible:!!me,synchronisationEnCours:offlineSyncRunning,
       heure:new Date().toISOString(),etapeEnCours:{...lastPhotoSyncStatus,message:scrubSyncMessage(lastPhotoSyncStatus.message)},
       compteur:{photosEnAttente:relevant.length,photosAutreProfil:all.length-relevant.length,rapportsEnAttente:reports.length,
@@ -784,7 +822,7 @@ async function callRemotePhotoExists(p,visitId){
 function isIOSPhotoDevice(){return /iPad|iPhone|iPod/.test(navigator.userAgent)||
   (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1)}
 const PHOTO_PROXY_MAX_BYTES=4*1024*1024;
-// V3.9.13 — deux transferts simultanes au maximum sur iOS, sans
+// V3.9.14 — deux transferts simultanes au maximum sur iOS, sans
 // mise en concurrence de deux decompressions pleine resolution en memoire.
 const IOS_PHOTO_CONCURRENCY=2;
 const IOS_PHOTO_OPTIMIZE_ABOVE_BYTES=900*1024;
@@ -908,7 +946,7 @@ async function proxyUploadIPhonePhoto(photo){
     throw error;
   }finally{clearTimeout(timer)}
 }
-// V3.9.13 : une photo créée avant confirmation du rapport n'a parfois aucun visit_id.
+// V3.9.14 : une photo créée avant confirmation du rapport n'a parfois aucun visit_id.
 // Elle était auparavant simplement ignorée, sans erreur ni tentative réseau.
 async function recoverQueuedPhotoVisit(p){
   const report=await offGet("reports",p.job_id);
@@ -1061,8 +1099,9 @@ async function syncOneQueuedReport(r){
     const latest=await offGet("reports",r.job_id);
     if(latest?.updated_at===originalUpdated){await offDelete("reports",r.job_id)}
     else if(latest)await offPut("reports",undefined,{...latest,next_retry_at:0,sync_state:"local"});
-    if(r.submit&&state.current===r.job_id){
-      // Refresh only after the user is no longer editing the form.
+    if(r.submit){queuedSubmitIds.delete(String(r.job_id));refreshGlobalSyncToolbar().catch(()=>{});}
+    if(r.submit&&activeTechnikView==="detail"&&String(state.current)===String(r.job_id)){
+      // Never reopen a report when the technician already moved to the next job.
       if(!document.activeElement?.matches("input,textarea,select"))jobDetail(r.job_id).catch(console.warn);
     }
   }catch(err){await markFailed("reports",r,err)}
@@ -1214,14 +1253,15 @@ async function pinSubmit(){
     if(input){input.disabled=false;input.value="";input.focus()}
   }
 }
-function showApp(){$("authRoot").classList.add("hidden");$("appRoot").classList.remove("hidden");setNetwork();refreshGlobalSyncToolbar().catch(()=>{})}
+function showApp(){$("authRoot").classList.add("hidden");$("appRoot").classList.remove("hidden");applySyncToolsVisibility();setNetwork();refreshGlobalSyncToolbar().catch(()=>{})}
 async function logout(){
   try{await api("logout")}catch(e){}
-  localStorage.removeItem(TOKEN_KEY);me=null;state={dashboard:null,jobs:[],done:[],refs:null,current:null,currentDetail:null};await showAuth();
+  localStorage.removeItem(TOKEN_KEY);me=null;queuedSubmitIds.clear();applySyncToolsVisibility();state={dashboard:null,jobs:[],done:[],refs:null,current:null,currentDetail:null};await showAuth();
 }
 
 /* ---------------- NAV ---------------- */
 async function go(view,arg=null){
+  activeTechnikView=view;
   document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("on",b.dataset.view===view || (view==="detail"&&b.dataset.view==="jobs")));
   if(view==="home")return home();
   if(view==="jobs")return jobs(false);
@@ -1235,13 +1275,15 @@ function setHead(title,sub){$("headline").innerHTML=`<h1>${esc(title)}</h1><p>${
 async function home(){
   setHead("Bonjour "+String(me?.display_name||"").split(" ")[0],"Voici vos interventions DL TECHNIK");
   const cached=await offReadApi("dashboard",{});
+  if(activeTechnikView!=="home")return;
   if(cached)renderHomeData(cached,true);else $("content").innerHTML=loading();
-  try{const d=await api("dashboard",{},navigator.onLine?{skipOffline:true}:{});state.dashboard=d;renderHomeData(d,false)}
-  catch(e){if(!cached)$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
+  try{const d=await api("dashboard",{},navigator.onLine?{skipOffline:true}:{});state.dashboard=d;if(activeTechnikView==="home")renderHomeData(d,false)}
+  catch(e){if(!cached&&activeTechnikView==="home")$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
 function renderHomeData(d,fromCache=false){
   const first=[...(d.in_progress||[]),...(d.assigned||[])][0];
   $("content").innerHTML=`
+    ${queuedSubmitIds.size?`<div class="sync-card" role="status"><strong>✓ Rapport enregistré sur ce téléphone.</strong> ${queuedSubmitIds.size} rapport(s) en cours d'envoi automatique avec leurs photos. Vous pouvez commencer l'intervention suivante. Gardez DL TECHNIK ouvert pour poursuivre les transferts sur iPhone.</div>`:''}
     ${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Les données affichées proviennent de la dernière synchronisation.</div>`:""}
     ${fromCache&&navigator.onLine?`<div class="sync-card">Affichage instantané des dernières données. <strong>Actualisation en arrière-plan…</strong></div>`:""}
     ${first?`<div class="card hero-card"><div class="section-title"><span>${d.in_progress?.length?"Intervention en cours":"Prochaine intervention"}</span><span class="chip ${statusClass(first.status)}">${statusLabel(first.status)}</span></div>${jobCard(first,true)}</div>`:""}
@@ -1261,19 +1303,21 @@ function jobCard(j,compact=false){
   const canShowDelete=!compact && j.can_cancel_from_list===true && !!myId &&
     String(j.cancel_creator_technician_id||"")===myId &&
     ["draft","assigned","in_progress"].includes(j.status);
-  const del=canShowDelete?`<div class="job-actions"><button type="button" class="job-list-delete"
+  const del=canShowDelete&&!queuedSubmitIds.has(String(j.id))?`<div class="job-actions"><button type="button" class="job-list-delete"
     ${navigator.onLine?"":"disabled title=\"Connexion requise pour supprimer\""}
     onclick="event.stopPropagation();deleteUnsentFromList('${esc(j.id)}',this)">🗑 Supprimer</button></div>`:"";
-  return `<div class="job" onclick="go('detail','${esc(j.id)}')"><div class="job-top"><div class="job-main"><div class="job-title">${esc(j.title||"Intervention")}</div><div class="job-place">${esc(j.location_label||"Lieu non renseigné")}${j.location_address?" · "+esc(j.location_address):""}</div></div><div class="job-date">${fmtDate(j.planned_date||j.created_at)}</div></div><div class="job-meta">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||j.intervention_type_code||"")}</span>${!compact?`<span class="chip">⏱ ${fmtMinutes(j.total_minutes)}</span><span class="chip">📷 ${Number(j.photo_count||0)}</span>`:""}</div>${del}</div>`;
+  return `<div class="job" onclick="go('detail','${esc(j.id)}')"><div class="job-top"><div class="job-main"><div class="job-title">${esc(j.title||"Intervention")}</div><div class="job-place">${esc(j.location_label||"Lieu non renseigné")}${j.location_address?" · "+esc(j.location_address):""}</div></div><div class="job-date">${fmtDate(j.planned_date||j.created_at)}</div></div><div class="job-meta">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${queuedSubmitIds.has(String(j.id))?"Envoi en cours":statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||j.intervention_type_code||"")}</span>${!compact?`<span class="chip">⏱ ${fmtMinutes(j.total_minutes)}</span><span class="chip">📷 ${Number(j.photo_count||0)}</span>`:""}</div>${del}</div>`;
 }
 
 /* ---------------- LISTS ---------------- */
 async function jobs(done){
   setHead(done?"Terminées":"Mes interventions",done?"Rapports envoyés et interventions validées":"Interventions qui vous sont attribuées");
   const payload={mode:done?"completed":"active"},cached=await offReadApi("list_jobs",payload);
+  const view=done?"done":"jobs";
+  if(activeTechnikView!==view)return;
   if(cached)renderJobsData(cached.jobs||[],done,true);else $("content").innerHTML=loading();
-  try{const r=await api("list_jobs",payload,navigator.onLine?{skipOffline:true}:{});if(done)state.done=r.jobs||[];else state.jobs=r.jobs||[];renderJobsData(r.jobs||[],done,false)}
-  catch(e){if(!cached)$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
+  try{const r=await api("list_jobs",payload,navigator.onLine?{skipOffline:true}:{});if(done)state.done=r.jobs||[];else state.jobs=r.jobs||[];if(activeTechnikView===view)renderJobsData(r.jobs||[],done,false)}
+  catch(e){if(!cached&&activeTechnikView===view)$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
 function renderJobsData(arr,done,fromCache=false){
   $("content").innerHTML=`${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Liste issue de la dernière synchronisation.</div>`:""}${fromCache&&navigator.onLine?`<div class="sync-card">Dernière liste affichée immédiatement. <strong>Actualisation…</strong></div>`:""}${arr.length?`<div>${arr.map(j=>jobCard(j)).join("")}</div>`:`<div class="card empty"><div class="ico">${done?"✓":"🛠️"}</div>${done?"Aucune intervention terminée.":"Aucune intervention à traiter."}</div>`}`
@@ -1329,10 +1373,18 @@ async function createJob(){
 
 /* ---------------- DETAIL / VISIT ---------------- */
 async function jobDetail(id){
+  activeTechnikView="detail";
   setHead("Intervention","Chargement du rapport terrain…");state.current=id;
+  const localQueued=await offGet("reports",id).catch(()=>null);
+  state.currentQueuedSubmit=!!(localQueued?.submit&&isOwnQueuedItem(localQueued));
   const payload={job_id:id},cached=await offReadApi("job_detail",payload);
-  if(cached){state.currentDetail=await offHydrateLocalPhotos(structuredClone(cached));renderDetail()}else $("content").innerHTML=loading();
-  try{const d=await api("job_detail",payload,navigator.onLine?{skipOffline:true}:{});if(state.current===id && document.activeElement?.matches("#content input,#content textarea,#content select"))return;state.currentDetail=await offHydrateLocalPhotos(d);renderDetail()}
+  if(activeTechnikView!=="detail"||String(state.current)!==String(id))return;
+  if(cached){
+    const detail=await offHydrateLocalPhotos(structuredClone(cached));
+    if(activeTechnikView!=="detail"||String(state.current)!==String(id))return;
+    state.currentDetail=detail;renderDetail();
+  }else $("content").innerHTML=loading();
+  try{const d=await api("job_detail",payload,navigator.onLine?{skipOffline:true}:{});if(activeTechnikView!=="detail"||String(state.current)!==String(id))return;if(document.activeElement?.matches("#content input,#content textarea,#content select"))return;const detail=await offHydrateLocalPhotos(d);if(activeTechnikView!=="detail"||String(state.current)!==String(id))return;state.currentDetail=detail;renderDetail()}
   catch(e){if(!cached)$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
 
@@ -1375,11 +1427,11 @@ function renderDetail(){
       ${team.length?`<div class="team-summary">${team.map(n=>`<span class="team-chip">👤 ${esc(n)}</span>`).join("")}</div>`:""}
       ${!["report_received","validated","archived","cancelled"].includes(j.status)?`<div class="team-actions"><span class="sub">Équipe affectée à cette intervention</span><button class="light" onclick="openAddTechnicianModal()">＋ Ajouter un technicien</button></div>`:""}
     </div><div class="section-title">Travail demandé</div><div class="request">${esc(j.description||"Aucune consigne complémentaire.")}</div></div>
-    ${open?renderActiveVisit(open,d):otherOpen?`<div class="card"><div class="section-title">Rapport commun</div><div class="report-owner-note">Un collègue affecté à cette intervention a déjà commencé le rapport. Un seul rapport est prévu pour toute l'équipe. Vous pouvez consulter l'intervention mais le rapport en cours reste sous la responsabilité de son rédacteur.</div></div>`:renderVisitAction(j,latest)}
-    ${renderDeleteUnsentAction(d)}
+    ${state.currentQueuedSubmit?`<div class="card" role="status"><div class="section-title">⏳ Rapport en cours de transmission</div><p class="sub">Votre rapport est conservé sur ce téléphone. Les photos sont transférées automatiquement, puis le rapport sera clôturé sur WAPILOT. Vous pouvez poursuivre vos autres interventions.</p></div>`:open?renderActiveVisit(open,d):otherOpen?`<div class="card"><div class="section-title">Rapport commun</div><div class="report-owner-note">Un collègue affecté à cette intervention a déjà commencé le rapport. Un seul rapport est prévu pour toute l'équipe. Vous pouvez consulter l'intervention mais le rapport en cours reste sous la responsabilité de son rédacteur.</div></div>`:renderVisitAction(j,latest)}
+    ${state.currentQueuedSubmit?"":renderDeleteUnsentAction(d)}
     ${d.visits?.length?`<div class="card"><div class="section-title">Historique des passages</div><div class="timeline">${d.visits.map(v=>renderVisitHistory(v)).join("")}</div></div>`:""}
   `;
-  if(open){bindCheckChanges();bindReportAutoSave()}
+  if(open&&!state.currentQueuedSubmit){bindCheckChanges();bindReportAutoSave()}
   updatePhotoSyncPanel().catch(console.warn);
   if($("deleteDraftAction"))checkCanDeleteUnsent().catch(console.warn);
 }
@@ -1505,7 +1557,8 @@ function renderActiveVisit(v,d){
       ${photoGrid(syndic,"syndic",v.id)}
       <div class="syndic-note-hint">Ces photos accompagneront votre signalement dans le dossier DL TECHNIK de WAPILOT. Une tâche sera créée lors de l'envoi du rapport si cette remarque est renseignée. Les photos restent sur le téléphone jusqu'à synchronisation.</div>
     </div>
-    <div class="footer-actions"><button class="light" onclick="saveVisit()">Enregistrer</button><button class="primary" onclick="finishVisit()">Envoyer rapport</button></div>
+    <p class="sub" style="margin-top:12px">Après validation, vous pourrez passer immédiatement à une autre intervention. Les photos et le rapport continueront à se synchroniser tant que DL TECHNIK reste actif.</p>
+    <div class="footer-actions"><button class="light" onclick="saveVisit()">Enregistrer</button><button id="finishVisitButton" class="primary" onclick="finishVisit()">Envoyer rapport et continuer</button></div>
   </div>`;
 }
 function isIOSHomeScreenApp(){
@@ -1588,16 +1641,29 @@ async function saveVisit(silent=false){
   try{await offQueueReport(false);if(!silent)toast("Brouillon enregistré sur le téléphone");return true}
   catch(e){if(!silent)alert("Enregistrement local impossible : "+e.message);return false}
 }
+let submittingVisitLocally=false;
 async function finishVisit(){
+  if(submittingVisitLocally)return;
   const p=visitPayload();
   if(!String(p.work_done||"").trim())return alert("Indiquez le travail effectué avant d'envoyer le rapport.");
   if(!p.started_at)return alert("Indiquez l'heure d'arrivée avant d'envoyer le rapport.");
   if(!p.ended_at)return alert("Indiquez l'heure de départ avant d'envoyer le rapport.");
   if(new Date(p.ended_at).getTime()<=new Date(p.started_at).getTime())return alert("L'heure de départ doit être postérieure à l'heure d'arrivée.");
-  if(!confirm("Placer ce rapport dans la file d'envoi vers WAPILOT ? Les photos seront envoyées avant le rapport."))return;
+  if(!confirm("Envoyer ce rapport en arrière-plan ? Les photos seront synchronisées automatiquement, puis le rapport sera clôturé dans WAPILOT. Vous pourrez continuer votre travail immédiatement."))return;
+  submittingVisitLocally=true;
+  const button=$("finishVisitButton");if(button){button.disabled=true;button.textContent="Enregistrement local…"}
   if(reportSaveTimer){clearTimeout(reportSaveTimer);reportSaveTimer=null}
-  try{await offQueueReport(true);toast("Rapport conservé localement · envoi en attente");scheduleBackgroundPhotoSync(150)}
-  catch(e){alert("Enregistrement impossible : "+e.message)}
+  try{
+    // Une écriture durable et confirmée, puis retour immédiat : aucun upload attendu ici.
+    const rec=await offQueueReport(true);
+    queuedSubmitIds.add(String(rec.job_id));
+    state.currentQueuedSubmit=true;
+    setPhotoSyncStatus("rapport mis en file", "Rapport sécurisé localement ; photos et clôture automatique à suivre");
+    scheduleBackgroundPhotoSync(100);
+    go("home").catch(e=>console.warn("Navigation après envoi",e));
+    toast("Rapport enregistré · transmission automatique en cours");
+  }catch(e){alert("Enregistrement local impossible : "+e.message);if(button){button.disabled=false;button.textContent="Envoyer rapport"}}
+  finally{submittingVisitLocally=false}
 }
 
 
