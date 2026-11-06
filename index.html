@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.18</title>
+<title>DL TECHNIK · V3.9.19</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -370,7 +370,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.18</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.19</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="État de la synchronisation automatique">
@@ -427,6 +427,7 @@ html,body{background:#f6f8f7;color:#17211c}
 .pointage-camera .punch-title{font-weight:800;font-size:17px;max-width:680px;margin:7px 0 10px}
 .pointage-camera .punch-info{font-size:11px;line-height:1.5;color:#d0dad2;max-width:680px;text-align:center;margin:6px 0}
 .pointage-camera .punch-error{color:#fecaca;font-size:12px;max-width:640px;text-align:center;min-height:20px}
+.pointage-camera .punch-capture-status{color:#bbf7d0;font-size:13px;font-weight:700;text-align:center;min-height:20px;max-width:640px;padding:2px 9px}
 .pointage-preview{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
 .pointage-preview img{height:105px;object-fit:cover;width:100%;border-radius:8px}
 .pointage-preview a{color:#166534;font-size:10px}
@@ -1234,7 +1235,7 @@ async function api(action,payload={},options={}){
 /* ---------------- POINTAGE NETTOYAGE V3.9.18 ---------------- */
 // Indépendant de technik_visits et de la file photo offline des rapports.
 const PUNCH_API=CFG.url+"/functions/v1/dl-technik-pointage";
-let punchStream=null,punchState={busy:false,mode:null,jobId:null,requestId:null};
+let punchStream=null,punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};
 let punchStatusByJob={};
 // Pointage visible pour toute intervention reliée à une copropriété WAPILOT.
 // Le code de type peut varier selon le rapport (ou être absent dans une vue API).
@@ -1306,13 +1307,13 @@ async function loadPunchStatus(jobId){
  try{
   const data=await punchApi("status",{job_id:jobId});
   punchStatusByJob[jobId]=data;
-  await offCacheApi("punch_status",cacheKey,data).catch(console.warn);
+  offCacheApi("punch_status",cacheKey,data).catch(console.warn);
   if(String(state.current)===String(jobId)&&$("cleaningPunchCard"))$("cleaningPunchCard").innerHTML=punchHtml(data,state.currentDetail.job);
   refreshPunchReportDisplay();
  }catch(e){if($("cleaningPunchCard")&&String(state.current)===String(jobId))$("cleaningPunchCard").innerHTML=`<h3>📸 Pointage photo</h3><p class="pointage-warning">${esc(e.message)}</p><button class="light" onclick="loadPunchStatus('${esc(jobId)}')">Réessayer</button>`;}
 }
 function stopPunchCamera(){if(punchStream){punchStream.getTracks().forEach(track=>track.stop());punchStream=null;}}
-function closePunchCamera(){if(punchState.busy)return;stopPunchCamera();$("modalRoot").innerHTML="";punchState={busy:false,mode:null,jobId:null,requestId:null};}
+function closePunchCamera(){if(punchState.busy)return;stopPunchCamera();$("modalRoot").innerHTML="";punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};}
 async function openPunchCamera(mode){
  if(!navigator.onLine)return alert("Une connexion Internet est indispensable pour enregistrer une heure serveur fiable.");
  if(!isCleaningJob(state.currentDetail?.job)||!state.current)return;
@@ -1320,9 +1321,9 @@ async function openPunchCamera(mode){
  if(!navigator.mediaDevices?.getUserMedia)return alert("Cette caméra n'est pas disponible. Demandez au responsable une procédure d'exception. La galerie n'est pas acceptée pour le pointage.");
  // L'autorisation caméra est demandée dans le geste utilisateur avant tout await.
  const streamPromise=navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
- punchState={mode,jobId:state.current,requestId:crypto.randomUUID(),busy:false};
+ punchState={mode,jobId:state.current,requestId:crypto.randomUUID(),busy:false,gpsPromise:null,gpsFix:null,gpsError:null};
  $("modalRoot").innerHTML=`<div class="pointage-camera" role="dialog" aria-modal="true"><div class="punch-title">${mode==="start"?"📷 Photo de façade — Arrivée":"📷 Photo de façade — Départ"}</div>
- <video id="punchVideo" class="pointage-video" autoplay muted playsinline></video><div class="punch-info">Cadrez la façade de la résidence. Aucune photo de galerie n'est acceptée. Cette photo sert à confirmer le pointage de votre prestation.</div>
+ <video id="punchVideo" class="pointage-video" autoplay muted playsinline></video><div id="punchCaptureStatus" class="punch-capture-status" role="status" aria-live="polite"></div><div class="punch-info">Cadrez la façade de la résidence. Aucune photo de galerie n'est acceptée. Cette photo sert à confirmer le pointage de votre prestation.</div>
  <div class="punch-error" id="punchError" role="alert"></div><div class="pointage-controls"><button class="light" onclick="closePunchCamera()">Annuler</button><button class="primary" id="punchCaptureBtn" onclick="capturePunch()" disabled>📸 Prendre la photo et pointer</button></div></div>`;
  try{
   punchStream=await streamPromise;
@@ -1330,7 +1331,30 @@ async function openPunchCamera(mode){
   $("punchVideo").srcObject=punchStream;
   await $("punchVideo").play();
   $("punchCaptureBtn").disabled=false;
+  // GPS acquis pendant le cadrage, sans retarder la prise de photo.
+  preparePunchGps();
  }catch(e){stopPunchCamera();if($("punchError"))$("punchError").textContent="Caméra indisponible : "+(e.message||e)+". Pointage impossible sans caméra intégrée.";}
+}
+// Une seule acquisition GPS pendant le cadrage de la façade : pas de suivi continu.
+// La mesure n'est réutilisée que si elle est récente au moment de la photo.
+function preparePunchGps(){
+ if(punchState.gpsPromise)return;
+ const attempt=punchState;
+ attempt.gpsPromise=punchGPS().then(g=>{
+   attempt.gpsFix=g;attempt.gpsError=null;return g;
+ }).catch(e=>{attempt.gpsError=e;return null;});
+}
+function isFreshPunchGps(g,maxAgeMs=8000){
+ const t=Date.parse(String(g?.observed_at||''));
+ return Number.isFinite(t)&&t<=Date.now()+1000&&Date.now()-t<=maxAgeMs;
+}
+async function punchGpsForCapture(){
+ const g=punchState.gpsFix||(punchState.gpsPromise?await punchState.gpsPromise:null);
+ if(isFreshPunchGps(g))return g;
+ // Si l'autorisation/lecture a échoué, ne pas boucler indéfiniment sur iOS.
+ if(!g&&punchState.gpsError)throw punchState.gpsError;
+ // Photo prise après un cadrage prolongé : demander une position plus récente.
+ return await punchGPS();
 }
 function punchGPS(){return new Promise((resolve,reject)=>{
  if(!navigator.geolocation)return reject(Error("Contrôle de présence non disponible sur ce téléphone."));
@@ -1343,33 +1367,55 @@ async function punchImageBase64(blob){
 }
 async function capturePunch(){
  if(punchState.busy||!punchStream)return;
- const video=$("punchVideo"),btn=$("punchCaptureBtn"),err=$("punchError");
+ const video=$("punchVideo"),btn=$("punchCaptureBtn"),err=$("punchError"),statusEl=$("punchCaptureStatus");
  if(!video||!video.videoWidth||!video.videoHeight)return alert("L'image de la caméra n'est pas encore disponible.");
- punchState.busy=true;if(btn){btn.disabled=true;btn.textContent="Enregistrement de la photo…"}if(err)err.textContent="";
+ punchState.busy=true;
+ if(btn){btn.disabled=true;btn.textContent="Photo prise — validation…";}
+ if(err)err.textContent="";
+ if(statusEl)statusEl.textContent="📸 Photo prise · confirmation en cours…";
  const reqId=punchState.requestId,jobId=punchState.jobId,mode=punchState.mode;
+ const startedPerformance=performance.now();
  try{
-  // Capture réellement issue du flux vidéo local, jamais d'un input[type=file].
-  const maxSide=1200,scale=Math.min(1,maxSide/Math.max(video.videoWidth,video.videoHeight));
-  const canvas=document.createElement("canvas");canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);
-  const ctx=canvas.getContext("2d",{alpha:false});if(!ctx)throw Error("Capture indisponible.");ctx.drawImage(video,0,0,canvas.width,canvas.height);
-  const blob=await new Promise(r=>canvas.toBlob(r,"image/jpeg",0.76));
+  // L'obturateur réagit immédiatement : la photo est extraite avant tout accès réseau ou GPS.
+  const maxSide=1000,scale=Math.min(1,maxSide/Math.max(video.videoWidth,video.videoHeight));
+  const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(video.videoWidth*scale));canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+  const ctx=canvas.getContext("2d",{alpha:false});if(!ctx)throw Error("Capture indisponible.");
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  video.pause(); // Gel immédiat de l'image ; l'ouvrier sait que le cliché est pris.
+  // Récupérer GPS en parallèle de l'encodage JPEG réduit l'attente après la photo.
+  const gpsPromise=punchGpsForCapture();
+  const blobPromise=new Promise(r=>canvas.toBlob(r,"image/jpeg",0.72));
+  const [gps,blob]=await Promise.all([gpsPromise,blobPromise]);
   if(!blob||blob.size<3500||blob.size>1300000)throw Error("Photo trop petite ou trop volumineuse. Reprenez la photo.");
-  const gps=await punchGPS();
+  if(statusEl)statusEl.textContent="📸 Photo prise · enregistrement sécurisé…";
   const result=await punchApi("mark",{job_id:jobId,mode,request_id:reqId,photo_base64:await punchImageBase64(blob),gps});
-  punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";punchState={busy:false,mode:null,jobId:null,requestId:null};
-  toast(mode==="start"?"Arrivée enregistrée sur Supabase":"Départ enregistré sur Supabase");
-  await loadPunchStatus(jobId);
+  console.info("[DL TECHNIK] Pointage photo confirmé après",Math.round(performance.now()-startedPerformance),"ms (caméra/GPS/envoi/serveur) — aucune coordonnée journalisée.");
+  punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";
+  punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};
+  // Aucune confirmation anticipée : le serveur a effectivement accepté le pointage.
+  toast(mode==="start"?"✅ Arrivée confirmée":"✅ Départ confirmé");
+  const card=$("cleaningPunchCard");
+  if(card&&String(state.current)===String(jobId))card.innerHTML='<h3>📸 Pointage photo</h3><p class="pointage-hint">✅ Pointage confirmé. Actualisation du rapport…</p>';
+  // Relecture du statut non bloquante. Le serveur est déjà la source de vérité.
+  loadPunchStatus(jobId).catch(console.warn);
   if(result.gps_status!=="verified")alert("Photo de pointage enregistrée. Un responsable vérifiera la présence sur place.");
  }catch(e){
-  // Ne pas présumer d'un échec définitif si la connexion a été interrompue après l'écriture serveur.
+  // Une coupure après réception par Supabase peut laisser un pointage déjà validé.
+  if(statusEl)statusEl.textContent="Confirmation non reçue. Vérification du pointage…";
   if(err)err.textContent=/(GPS|géolocalisation|localisation|position|coordonn)/i.test(String(e.message||e))?
       "La confirmation de présence a échoué. Vérifiez les autorisations de l'application ou contactez votre responsable.":
       (e.message||String(e))+". Vérifiez le statut avant une nouvelle tentative.";
-  try{const status=await punchApi("status",{job_id:jobId});punchStatusByJob[jobId]=status;const found=(status.sessions||[]).some(s=>s.start_request_id===reqId||s.end_request_id===reqId);
-    if(found){punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";punchState={busy:false,mode:null,jobId:null,requestId:null};await loadPunchStatus(jobId);alert("Pointage déjà confirmé par le serveur.");return;}
+  try{const existing=await punchApi("status",{job_id:jobId});punchStatusByJob[jobId]=existing;
+    const found=(existing.sessions||[]).some(s=>s.start_request_id===reqId||s.end_request_id===reqId);
+    if(found){punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";
+      punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};
+      loadPunchStatus(jobId).catch(console.warn);alert("Pointage déjà confirmé par le serveur.");return;}
   }catch(_){}
-  // Conserver le même identifiant si l'ouvrier réessaie après coupure, sans doublon de pointage.
-  punchState.busy=false;if(btn){btn.disabled=false;btn.textContent="📸 Réessayer avec une nouvelle photo"}
+  // Conserver le même identifiant si l'ouvrier réessaie : aucune création en double.
+  punchState.busy=false;
+  if(video&&punchStream)video.play().catch(()=>{});
+  if(statusEl)statusEl.textContent="";
+  if(btn){btn.disabled=false;btn.textContent="📸 Réessayer avec une nouvelle photo";}
  }
 }
 /* ---------------- FIN POINTAGE NETTOYAGE ---------------- */
