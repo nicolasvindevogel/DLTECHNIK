@@ -370,12 +370,12 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.21</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.22</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="État de la synchronisation automatique">
       <div class="global-sync-main"><b id="globalSyncTitle">Envoi automatique</b><small id="globalSyncInfo">Les photos et rapports sont transmis pendant l'utilisation de l'application.</small></div>
-      <div id="globalSyncActions" class="global-sync-actions hidden"><button class="light" type="button" onclick="retryAllPendingUploads()">↻ Relancer</button><button class="light global-diagnostic-btn" type="button" onclick="showPhotoSyncDiagnostic()">Diagnostic</button></div>
+      <div id="globalSyncActions" class="global-sync-actions"><button class="light" type="button" onclick="retryAllPendingUploads()">↻ Relancer les envois</button><button class="light" type="button" onclick="checkTechnikConnection()">Tester la connexion</button><button id="adminSyncDiagnosticButton" class="light global-diagnostic-btn hidden" type="button" onclick="showPhotoSyncDiagnostic()">Diagnostic détaillé</button></div>
     </section>
     <main id="content" class="content"></main>
   </div>
@@ -491,9 +491,11 @@ let activeTechnikView="home";
 const queuedSubmitIds=new Set();
 function applySyncToolsVisibility(){
   const enabled=canUseSyncDiagnostics();
-  const toolbar=$("globalSyncToolbar"),buttons=$("globalSyncActions");
+  const toolbar=$("globalSyncToolbar"),button=$("adminSyncDiagnosticButton");
   if(toolbar)toolbar.classList.toggle("sync-toolbar-simple",!enabled);
-  if(buttons)buttons.classList.toggle("hidden",!enabled);
+  // Les salariés peuvent relancer leurs propres envois et tester la connexion.
+  // Seul le profil de test peut consulter le journal technique détaillé.
+  if(button)button.classList.toggle("hidden",!enabled);
 }
 function syncBackoff(attempt=1){return Math.min(SYNC_MAX_DELAY,4000*Math.pow(2,Math.min(6,Math.max(0,attempt-1))))+Math.floor(Math.random()*900)}
 function queueRetry(){
@@ -748,8 +750,10 @@ async function updatePhotoSyncPanel(){
     !last?'Aucune tentative détectée depuis l’ouverture de cette session.':' ';
   if(!canUseSyncDiagnostics()){
     el.innerHTML=`<div><b>📷 ${items.length} photo${items.length>1?'s':''} en attente${details}</b>
-      <p>Envoi automatique pendant l'utilisation de DL TECHNIK. Vous pouvez continuer les interventions : les originaux restent conservés sur ce téléphone jusqu'à confirmation serveur.</p>
-      ${!photoNetworkReady()?`<small>Hors ligne : reprise automatique à la connexion.</small>`:''}</div>`;
+      <p>Photos originales conservées sur l'iPhone jusqu'à confirmation du serveur. Si le VPN ralentit la connexion, vous pouvez relancer sans perdre les photos.</p>
+      ${!photoNetworkReady()?`<small>Hors ligne : reprise automatique à la connexion.</small>`:''}
+      ${firstMessage?`<small>${esc(firstMessage)}</small>`:''}${reportError?`<small>${esc(reportError)}</small>`:''}</div>
+      <div class="sync-panel-actions"><button class="light" type="button" onclick="retryPendingPhotoUploads()">↻ Relancer ces photos</button><button class="light" type="button" onclick="checkTechnikConnection()">Tester la connexion</button></div>`;
     return;
   }
   el.innerHTML=`<div><b>📷 ${items.length} photo${items.length>1?'s':''} en attente de confirmation${details}</b>
@@ -761,7 +765,7 @@ async function updatePhotoSyncPanel(){
     <div class="sync-panel-actions"><button class="light" type="button" onclick="retryPendingPhotoUploads()">↻ Relancer l’envoi</button><button class="light" type="button" onclick="showPhotoSyncDiagnostic()">Diagnostic</button></div>`;
 }
 async function retryPendingPhotoUploads(){
-  if(!canUseSyncDiagnostics())return;
+  // L'ouvrier peut relancer les photos de sa propre intervention.
   try{
     if(offlineSyncRunning){setPhotoSyncStatus("file", "Un transfert est déjà en cours.");toast("Synchronisation déjà en cours");return}
     if(!me){setPhotoSyncStatus("session", "Reconnectez-vous à votre profil sans effacer les données.");return}
@@ -789,7 +793,8 @@ async function retryPendingPhotoUploads(){
   finally{manualPhotoNetworkValidated=false;updatePhotoSyncPanel().catch(()=>{});}
 }
 async function retryAllPendingUploads(){
-  if(!canUseSyncDiagnostics())return;
+  // Autorisé pour l'ouvrier connecté : uniquement les fichiers de SON profil.
+  // Ne jamais supprimer la file, les photos ni les brouillons lors de la relance.
   if(!me){alert("Reconnectez-vous sans supprimer les données locales.");return}
   if(offlineSyncRunning){toast("Transfert déjà en cours : consultez Diagnostic");return}
   try{
@@ -839,7 +844,7 @@ async function showPhotoSyncDiagnostic(){
     const relevant=all.filter(isOwnQueuedItem),reports=allReports.filter(isOwnQueuedItem);
     const faults=relevant.filter(p=>p.last_error).map(p=>({statut:p.sync_state||"local",etape:p.last_stage||"",tentatives:p.attempts||0,erreur:scrubSyncMessage(p.last_error)}));
     const rFaults=reports.filter(r=>r.last_error).map(r=>({statut:r.sync_state||"local",etape:r.last_stage||"",tentatives:r.attempts||0,erreur:scrubSyncMessage(r.last_error)}));
-    const d={version:"3.9.15",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
+    const d={version:"3.9.22",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
       reseauAnnonce:navigator.onLine,sessionDisponible:!!me,synchronisationEnCours:offlineSyncRunning,
       heure:new Date().toISOString(),etapeEnCours:{...lastPhotoSyncStatus,message:scrubSyncMessage(lastPhotoSyncStatus.message)},
       compteur:{photosEnAttente:relevant.length,photosAutreProfil:all.length-relevant.length,rapportsEnAttente:reports.length,
@@ -852,6 +857,49 @@ async function showPhotoSyncDiagnostic(){
     openModal(`<h3>Diagnostic de synchronisation</h3><p class="sub">Accessible depuis tous les écrans. Ne contient ni photos, ni noms de techniciens, ni code PIN, ni jeton.</p><textarea id="photoSyncDiagnostic" readonly style="min-height:240px;font-size:12px;width:100%;font-family:monospace">${esc(summary)}</textarea><div class="footer-actions"><button class="light" type="button" onclick="copySyncDiagnostic()">Copier le diagnostic</button><button class="primary" onclick="closeModal()">Fermer</button></div>`);
   }catch(e){alert("Impossible de lire le diagnostic : "+String(e?.message||e))}
 }
+// Diagnostic réseau accessible à chaque technicien, sans photos, PIN, jetons,
+// coordonnées GPS ni liste d'interventions. Le navigateur ne peut pas savoir
+// si un VPN est actif ni lire les domaines que ce VPN aurait filtrés.
+function photoTransportError(error){
+  const msg=String(error?.message||error||"").toLowerCase();
+  return error?.name==="AbortError"||error?.name==="TypeError"||
+    /failed to fetch|load failed|networkerror|réseau|network|connexion interrompue|délai dépassé|timeout|http 50[234]|http 52[024]/.test(msg);
+}
+async function checkTechnikConnection(){
+  if(!me)return alert("Connectez-vous d'abord à votre profil DL TECHNIK.");
+  const test=async(label,fn)=>{
+    const t=performance.now();
+    try{const response=await fn();return {label,status:"OK",duration:Math.round(performance.now()-t),http:response?.status||null}}
+    catch(e){return {label,status:"ERREUR",duration:Math.round(performance.now()-t),error:scrubSyncMessage(String(e?.message||e)).slice(0,160)}}
+  };
+  const rows=[];
+  const modal=`<h3>Connexion des photos</h3><p class="sub">Test avec le VPN actif. Aucune photo, position ou donnée personnelle n'est envoyée.</p>
+    <div id="photoNetworkTestResult"><span class="loader"></span> Vérification de la connexion au serveur…</div>
+    <div class="footer-actions"><button class="light" onclick="closeModal()">Fermer</button></div>`;
+  openModal(modal);
+  const display=()=>{
+    const el=$("photoNetworkTestResult");if(!el)return;
+    const allOk=rows.every(x=>x.status==="OK");
+    el.innerHTML=`<div class="request">${rows.map(r=>`${r.status==="OK"?"✅":"⚠️"} ${esc(r.label)} : ${esc(r.status)}${r.http?` (HTTP ${r.http})`:""}${r.duration!=null?` · ${r.duration} ms`:""}${r.error?` — ${esc(r.error)}`:""}`).join("<br>")}</div>
+      <p class="sub">${allOk?"Connexion de base accessible. Si les photos restent en attente, relancez les envois ; un gros transfert peut encore échouer.":"La connexion au serveur rencontre un problème. Gardez les fichiers sur l'iPhone. Essayez de changer le protocole ou le serveur dans NordVPN, sans couper le VPN."}</p>
+      <p class="sub">Dans NordVPN : Profil → Paramètres → Localisation et protocole → essayer OpenVPN (TCP) ou NordWhisper, puis reconnecter le VPN. Vérifier aussi le filtrage anti-menaces si nécessaire.</p>`;
+  };
+  rows.push(await test("Serveur d'authentification",async()=>{
+    const v=await api("session",{},{skipOffline:true,timeoutMs:12000});
+    if(!v?.valid)throw new Error("Session non valide ; reconnectez-vous dans DL TECHNIK sans effacer les fichiers.");
+    return {status:200};
+  }));display();
+  rows.push(await test("Service de réception des photos",async()=>{
+    const ac=new AbortController(),timer=setTimeout(()=>ac.abort(),12000);
+    try{
+      // OPTIONS teste l'accès réseau à l'Edge Function sans photo ni authentification.
+      const resp=await fetch(CFG.url+"/functions/v1/dl-technik-photo-proxy",{method:"OPTIONS",signal:ac.signal});
+      if(!resp.ok)throw new Error("Service indisponible (HTTP "+resp.status+")");
+      return resp;
+    }finally{clearTimeout(timer)}
+  }));display();
+}
+
 async function markFailed(store,rec,err){
   const current=await offGet(store,store==="photos"?rec.id:rec.job_id);
   if(!current)return;
@@ -874,6 +922,7 @@ const PHOTO_PROXY_MAX_BYTES=4*1024*1024;
 // V3.9.18 — deux transferts simultanes au maximum sur iOS, sans
 // mise en concurrence de deux decompressions pleine resolution en memoire.
 const IOS_PHOTO_CONCURRENCY=2;
+let iosSerialPhotoMode=false;
 const IOS_PHOTO_OPTIMIZE_ABOVE_BYTES=900*1024;
 const IOS_PHOTO_MAX_DIMENSION=1600;
 let iosPhotoPreparationTail=Promise.resolve();
@@ -884,7 +933,9 @@ function withIOSPhotoPreparation(action){
 }
 async function syncQueuedPhotoBatch(items,visitResolver){
   if(!items.length)return;
-  const concurrency=isIOSPhotoDevice()?IOS_PHOTO_CONCURRENCY:1;
+  // En cas d'erreur de transport (VPN/connexion instable), envoyer les photos
+  // une à une jusqu'à la fermeture de la PWA. Ne change pas les fichiers source.
+  const concurrency=isIOSPhotoDevice()?(iosSerialPhotoMode?1:IOS_PHOTO_CONCURRENCY):1;
   let cursor=0;
   const worker=async()=>{
     while(cursor<items.length){
@@ -927,11 +978,11 @@ function arrayBufferBase64(buffer){
   for(let i=0;i<bytes.length;i+=size)chunks.push(String.fromCharCode(...bytes.subarray(i,i+size)));
   return btoa(chunks.join(""));
 }
-async function prepareIPhoneProxyPhoto(file){
+async function prepareIPhoneProxyPhoto(file,compactMode=false){
   // Ne jamais toucher a l'original conserve dans IndexedDB.
-  // Les photos > 900 Ko sont reduites pour limiter la quantite de Base64
-  // envoyee a la fonction serveur (principal goulot d'etranglement iPhone).
-  if(file.size<=IOS_PHOTO_OPTIMIZE_ABOVE_BYTES)return file;
+  // Sur connexion instable, un nouvel essai peut transférer une version plus
+  // compacte ; l'original reste intact sur l'appareil jusqu'à confirmation.
+  if(!compactMode&&file.size<=IOS_PHOTO_OPTIMIZE_ABOVE_BYTES)return file;
   let bitmap=null,url=null;
   try{
     let drawable,width,height;
@@ -940,14 +991,14 @@ async function prepareIPhoneProxyPhoto(file){
       await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error("Decodage iPhone indisponible"));img.src=url});
       drawable=img;width=img.naturalWidth;height=img.naturalHeight}
     if(!width||!height)throw new Error("Dimensions de l'image indisponibles");
-    const scale=Math.min(1,IOS_PHOTO_MAX_DIMENSION/Math.max(width,height));
+    const scale=Math.min(1,(compactMode?1200:IOS_PHOTO_MAX_DIMENSION)/Math.max(width,height));
     const canvas=document.createElement("canvas");
     canvas.width=Math.max(1,Math.round(width*scale));
     canvas.height=Math.max(1,Math.round(height*scale));
     const ctx=canvas.getContext("2d",{alpha:false});if(!ctx)throw new Error("Canvas indisponible");
     ctx.drawImage(drawable,0,0,canvas.width,canvas.height);
     const compressed=await new Promise((resolve,reject)=>{
-      canvas.toBlob(blob=>blob?.size?resolve(blob):reject(new Error("Compression image impossible")),"image/jpeg",.74);
+      canvas.toBlob(blob=>blob?.size?resolve(blob):reject(new Error("Compression image impossible")),"image/jpeg",compactMode?.64:.74);
     });
     if(compressed.size>PHOTO_PROXY_MAX_BYTES){
       if(file.size<=PHOTO_PROXY_MAX_BYTES)return file;
@@ -1049,7 +1100,7 @@ async function syncOneQueuedPhoto(p,visitId){
       const prepared=await withIOSPhotoPreparation(async()=>{
         const sourceBytes=await readQueuedPhotoBytes(current);
         const original=new File([sourceBytes],current.original_filename||"photo.jpg",{type:sourceMime});
-        const proxyFile=await prepareIPhoneProxyPhoto(original);
+        const proxyFile=await prepareIPhoneProxyPhoto(original,iosSerialPhotoMode&&Number(current.attempts||0)>0);
         const base64=await imageBlobBase64(proxyFile);
         return {base64,name:proxyFile.name,mime:proxyFile.type||"image/jpeg",size:proxyFile.size,originalSize:original.size};
       });
@@ -1096,6 +1147,9 @@ async function syncOneQueuedPhoto(p,visitId){
     await completeQueuedPhoto(current,{id:result.photo_id,visit_id:visitId,storage_path:current.storage_path});
     return true;
   }catch(err){
+    // Les connexions VPN mobiles peuvent échouer sur des uploads simultanés.
+    // Réduire la concurrence après un vrai échec réseau, pas après un refus métier.
+    if(isIOSPhotoDevice()&&photoTransportError(err))iosSerialPhotoMode=true;
     // Message court lisible dans le panneau, original conservé.
     setPhotoSyncStatus(stage, String(err?.message||err));
     await markFailed("photos",{...current,last_stage:stage},err);
