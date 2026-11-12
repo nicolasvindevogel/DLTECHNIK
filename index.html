@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.26</title>
+<title>DL TECHNIK · V3.9.27</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -370,7 +370,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.26</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.27</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="État de la synchronisation automatique">
@@ -571,7 +571,7 @@ function queuedPhotoBlob(rec){
 }
 async function offAll(store){const d=await offOpen();return new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).getAll();r.onsuccess=()=>resolve(r.result||[]);r.onerror=()=>reject(r.error)})}
 async function offCount(store){const d=await offOpen();return new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).count();r.onsuccess=()=>resolve(r.result||0);r.onerror=()=>reject(r.error)})}
-/* DL TECHNIK V3.9.26 - interventions et pointages securises hors ligne */
+/* DL TECHNIK V3.9.27 - interventions et pointages securises hors ligne */
 const OFFLINE_JOB_PREFIX="offline-job-";
 const isOfflineJobId=id=>String(id||"").startsWith(OFFLINE_JOB_PREFIX);
 const ownOffline=r=>!!me&&String(r.technician_id)===String(me.technician_id||me.id);
@@ -610,17 +610,69 @@ async function createOfflineLocalJob(payload){
  return rec;
 }
 async function offlineVisibleJobs(){return (await offAll("offline_jobs")).filter(r=>ownOffline(r)&&!r.remote_id).map(r=>offlineDetailFor(r).job)}
+function punchProofKey(jobId,technicianId=currentTechnicianId()){
+ return "punch:proof:"+String(jobId)+":"+String(technicianId);
+}
+async function capturedProof(jobId){
+ const key=punchProofKey(jobId);
+ const found=await offGet("kv",key).catch(()=>null);
+ if(found)return found;
+ // Migration des captures en attente de la V3.9.26 : ne pas obliger
+ // les travailleurs a reprendre des photos deja sauvegardees.
+ const old=(await offAll("offline_punches")).filter(x=>ownOffline(x)&&String(x.job_id)===String(jobId))
+   .sort((a,b)=>Date.parse(a.captured_at_device)-Date.parse(b.captured_at_device));
+ if(!old.length)return null;
+ const proof={job_id:jobId,technician_id:old[0].technician_id};
+ for(const rec of old){
+   if(!proof[rec.mode])proof[rec.mode]={request_id:rec.request_id,at:rec.captured_at_device,confirmed:false};
+ }
+ await offPut("kv",key,proof);
+ return proof;
+}
 async function offSavePunch(rec,blob){
- const bytes=await blob.arrayBuffer();if(bytes.byteLength<3500||bytes.byteLength>1500000)throw Error("Photo de pointage invalide.");
- const db=await offOpen();await new Promise((resolve,reject)=>{
+ const bytes=await blob.arrayBuffer();
+ if(bytes.byteLength<3500||bytes.byteLength>1500000)throw Error("Photo de pointage invalide.");
+ const db=await offOpen();
+ const key=punchProofKey(rec.job_id,rec.technician_id);
+ const activeKey="punch:active-worker:"+rec.technician_id;
+ await new Promise((resolve,reject)=>{
   const tx=db.transaction(["offline_punches","offline_punch_binary","kv"],"readwrite");
-  tx.objectStore("offline_punches").put(rec);
-  tx.objectStore("offline_punch_binary").put({request_id:rec.request_id,bytes});
-  const key="punch:active-worker:"+rec.technician_id;
-  if(rec.mode==="start")tx.objectStore("kv").put({job_id:rec.job_id,request_id:rec.request_id},key);
-  else tx.objectStore("kv").delete(key);
-  tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Espace local plein : photo non enregistree."));tx.onerror=()=>reject(tx.error);
+  const store=tx.objectStore("kv");
+  let error=null;
+  const existing=store.get(key);
+  existing.onsuccess=()=>{
+   const proof=existing.result||{job_id:rec.job_id,technician_id:rec.technician_id};
+   if(proof[rec.mode]){
+     error=new Error(rec.mode==="start"?"Arrivee deja pointee pour cette intervention.":"Depart deja pointe pour cette intervention.");
+     tx.abort();return;
+   }
+   // An earlier version may have recorded an arrival directly on the server.
+   // In this case the status fetched from the server establishes that arrival.
+   if(rec.mode==="end"&&!proof.start){
+    const remote=(punchStatusByJob[rec.job_id]?.sessions||[]).find(x=>x.started_at&&!x.ended_at);
+    if(remote)proof.start={request_id:remote.start_request_id,at:remote.started_at,confirmed:true,server_at:remote.started_at};
+   }
+   if(rec.mode==="end"&&!proof.start){error=new Error("Photo d'arrivee absente. Revenez a l'intervention et actualisez le pointage.");tx.abort();return;}
+   proof[rec.mode]={request_id:rec.request_id,at:rec.captured_at_device,confirmed:false};
+   store.put(proof,key);
+   tx.objectStore("offline_punches").put(rec);
+   tx.objectStore("offline_punch_binary").put({request_id:rec.request_id,bytes});
+   if(rec.mode==="start")store.put({job_id:rec.job_id,request_id:rec.request_id},activeKey);
+   else store.delete(activeKey);
+  };
+  existing.onerror=()=>{error=existing.error||new Error("Lecture du pointage impossible");tx.abort()};
+  tx.oncomplete=()=>resolve();
+  tx.onabort=()=>reject(error||tx.error||Error("Espace local plein : photo non enregistree."));
+  tx.onerror=()=>reject(error||tx.error);
  });
+}
+async function confirmLocalPunch(rec,server){
+ const key=punchProofKey(rec.job_id,rec.technician_id);
+ const proof=(await offGet("kv",key))||{job_id:rec.job_id,technician_id:rec.technician_id};
+ const current=proof[rec.mode];
+ if(!current||current.request_id!==rec.request_id)throw Error("Preuve locale du pointage introuvable. La photo originale est conservee.");
+ proof[rec.mode]={...current,confirmed:true,server_at:server?.at||current.at};
+ await offPut("kv",key,proof);
 }
 async function offDeletePunch(id){const db=await offOpen();return new Promise((resolve,reject)=>{
  const tx=db.transaction(["offline_punches","offline_punch_binary"],"readwrite");
@@ -632,20 +684,27 @@ async function offlinePunchesFor(jobId){return (await offAll("offline_punches"))
  .sort((a,b)=>Date.parse(a.captured_at_device)-Date.parse(b.captured_at_device));}
 async function offlinePunchOverlay(jobId,remote={}){
  const pending=await offlinePunchesFor(jobId);
- if(!pending.length)return remote;
+ const proof=await capturedProof(jobId);
+ if(!pending.length&&!proof?.start)return remote;
  const sessions=[...(remote.sessions||[])];
  const queuedStart=pending.find(p=>p.mode==="start"),queuedEnd=pending.find(p=>p.mode==="end");
- const serverStart=queuedStart&&sessions.find(s=>s.start_request_id===queuedStart.request_id);
- if(queuedStart&&!serverStart){
-   sessions.unshift({job_id:jobId,started_at:queuedStart.captured_at_device,ended_at:queuedEnd?.captured_at_device||null,
-    start_request_id:queuedStart.request_id,end_request_id:queuedEnd?.request_id||null,
-    start_gps_status:"unavailable",start_photo_path:null,end_photo_path:null,_offline:true});
- }else if(queuedEnd&&sessions.length){
-   const s=sessions.find(x=>!x.ended_at)||sessions[0];
-   if(s)sessions.splice(sessions.indexOf(s),1,{...s,ended_at:queuedEnd.captured_at_device,end_request_id:queuedEnd.request_id,_offline:true});
+ const localStart=queuedStart||proof?.start;
+ const localEnd=queuedEnd||proof?.end;
+ const startId=queuedStart?.request_id||proof?.start?.request_id;
+ const existing=sessions.find(x=>x.start_request_id===startId)||sessions.find(x=>x.started_at&&!x.ended_at)||sessions[0];
+ const startAt=queuedStart?.captured_at_device||proof?.start?.server_at||proof?.start?.at;
+ const endAt=queuedEnd?.captured_at_device||proof?.end?.server_at||proof?.end?.at;
+ if(localStart&&!existing){
+   sessions.unshift({job_id:jobId,started_at:startAt,ended_at:localEnd?endAt:null,
+     start_request_id:startId,end_request_id:queuedEnd?.request_id||proof?.end?.request_id||null,
+     start_gps_status:"unavailable",start_photo_path:null,end_photo_path:null,_local_capture:true});
+ }else if(localEnd&&existing&&!existing.ended_at){
+   sessions.splice(sessions.indexOf(existing),1,{...existing,ended_at:endAt,
+     end_request_id:queuedEnd?.request_id||proof?.end?.request_id||null,_local_capture:true});
  }
- const active=queuedEnd?null:(queuedStart? (sessions.find(x=>x.start_request_id===queuedStart.request_id)||null):remote.active||null);
- return {...remote,ok:false,sessions,active,pending_local:true,pending_end:!!queuedEnd};
+ const active=localEnd?null:(localStart?sessions.find(x=>x.start_request_id===startId)||sessions.find(x=>!x.ended_at)||null:remote.active||null);
+ return {...remote,sessions,active,pending_local:pending.length>0,pending_end:!!localEnd,
+   proof_exists:!!localStart};
 }
 function offlineCheckLocalTime(p){const t=Date.parse(p.captured_at_device);if(!Number.isFinite(t))throw Error("Horodatage local illisible.")}
 async function syncOfflineNewJobs(){
@@ -687,13 +746,34 @@ async function remapOfflineJob(rec){
  }
  const punches=await offlinePunchesFor(localId);
  for(const punch of punches)await offPut("offline_punches",undefined,{...punch,job_id:remoteId});
+ const oldProofKey=punchProofKey(localId,rec.technician_id);
+ const proof=await offGet("kv",oldProofKey);
+ if(proof){
+   await offPut("kv",punchProofKey(remoteId,rec.technician_id),{...proof,job_id:remoteId});
+   await offDelete("kv",oldProofKey);
+ }
+ const workerKey="punch:active-worker:"+rec.technician_id;
+ const activeWorker=await offGet("kv",workerKey);
+ if(activeWorker&&String(activeWorker.job_id)===localId)
+   await offPut("kv",workerKey,{...activeWorker,job_id:remoteId});
  const detail=await offReadApi("job_detail",{job_id:localId});
  if(detail)await offCacheApi("job_detail",{job_id:remoteId},{...detail,job:{...detail.job,id:remoteId,offline_local:false},
    visits:(detail.visits||[]).map(v=>({...v,job_id:remoteId}))});
  await offDelete("kv",offCacheKey("job_detail",{job_id:localId}));
  await offDelete("offline_jobs",localId);
  state.offlineJobs=(state.offlineJobs||[]).filter(j=>j.id!==localId);
- if(String(state.current)===localId&&!punchState.busy){state.current=remoteId;jobDetail(remoteId).catch(console.warn)}
+ if(String(state.current)===localId&&!punchState.busy){
+   state.current=remoteId;
+   if(state.currentDetail?.job){
+     state.currentDetail.job.id=remoteId;
+     state.currentDetail.job.offline_local=false;
+     for(const visit of (state.currentDetail.visits||[]))visit.job_id=remoteId;
+   }
+   // Ne pas effacer des champs en cours de frappe au retour du réseau.
+   if(document.activeElement?.matches("#content input,#content textarea,#content select")){
+     loadPunchStatus(remoteId).catch(console.warn);
+   }else jobDetail(remoteId).catch(console.warn);
+ }
 }
 async function syncOfflinePunches(){
  const punches=(await offAll("offline_punches")).filter(ownOffline)
@@ -711,6 +791,7 @@ async function syncOfflinePunches(){
     captured_at_device:rec.captured_at_device,device_offset_minutes:rec.device_offset_minutes,
     use_device_time:!!useDeviceTime});
    if(!result?.ok)throw Error("Confirmation du pointage absente.");
+   await confirmLocalPunch(rec,result);
    await offDeletePunch(rec.request_id);
    refreshNetworkBadge().catch(()=>{});
    delete punchStatusByJob[rec.job_id];
@@ -789,7 +870,7 @@ async function refreshGlobalSyncToolbar(){
   }catch(error){info.textContent="Lecture de la file locale impossible : "+String(error?.message||error).slice(0,150)}
 }
 function offNetworkError(e){const s=String(e?.message||e||"").toLowerCase();return !navigator.onLine||abortIsNetworkError(e)||s.includes("failed to fetch")||s.includes("networkerror")||s.includes("load failed")||s.includes("timeout")||s.includes("timed out")||s.includes("abort")}
-function offQueueReport(submit=false){
+function offQueueReport(submit=false,capturedTimes=null){
   if(deletingJobIds.has(String(state.current)))return Promise.reject(new Error("Annulation en cours"));
   // Capture form and job before the asynchronous queue: navigating to another
   // intervention must NEVER write yesterday's inputs to a different job.
@@ -797,17 +878,18 @@ function offQueueReport(submit=false){
   if(!v||!jobId)return Promise.reject(new Error("Rapport introuvable."));
   const entry={jobId,visitId:v.id,technicianId:currentTechnicianId(),payload:visitPayload(),
     checks:[...document.querySelectorAll("[data-check]")].map(e=>({id:e.dataset.check,checked:e.checked})),
-    submit,detail:state.currentDetail};
+    submit,capturedTimes,detail:state.currentDetail};
   const queued=localReportWrites.catch(()=>{}).then(()=>writeQueuedReport(entry));
   localReportWrites=queued;
   return queued;
 }
 async function writeQueuedReport(entry){
-  const {jobId,visitId,technicianId,payload,checks,submit,detail}=entry;
+  const {jobId,visitId,technicianId,payload,checks,submit,capturedTimes,detail}=entry;
   const old=await offGet("reports",jobId);
   const rec={...(old||{}),job_id:jobId,technician_id:technicianId,
     visit_id:visitId&&!String(visitId).startsWith("local-")?visitId:(old?.visit_id||null),
-    payload:{...payload,visit_id:undefined},checks,submit:Boolean(submit||old?.submit),
+    payload:{...payload,...(capturedTimes||{}),visit_id:undefined},checks,submit:Boolean(submit||old?.submit),
+    captured_pointages_verified:!!(capturedTimes||old?.captured_pointages_verified),
     updated_at:Math.max(Date.now(),Number(old?.updated_at||0)+1),next_retry_at:0,sync_state:"local"};
   await offPut("reports",undefined,rec);
   const visit=detail?.visits?.find(v=>String(v.id)===String(visitId));
@@ -1337,7 +1419,9 @@ async function completeQueuedPhoto(p,remote){
 }
 async function syncOneQueuedReport(r){
   if(deletingJobIds.has(String(r.job_id)))return;
-  if(!isOwnQueuedItem(r)||r.next_retry_at>Date.now()||!navigator.onLine)return;
+  if(!isOwnQueuedItem(r)||r.next_retry_at>Date.now()||!photoNetworkReady())return;
+  if(isOfflineJobId(r.job_id))return; // L'intervention doit d'abord recevoir son ID serveur.
+  if(r.submit&&(await offlinePunchesFor(r.job_id)).length)return; // Les deux photos partent AVANT le rapport.
   // Migration des brouillons préexistants : l'ancien iPhone peut avoir gardé
   // une demande d'envoi avec des heures déclarées. Ne JAMAIS la renvoyer
   // sans vérifier les sessions photo directement auprès de Supabase.
@@ -1346,11 +1430,24 @@ async function syncOneQueuedReport(r){
       const detail=await api("job_detail",{job_id:r.job_id},{skipOffline:true,timeoutMs:12000});
       const alreadySent=["report_received","validated","archived"].includes(detail.job?.status)
         ||(detail.visits||[]).some(v=>String(v.id)===String(r.visit_id)&&["submitted","validated"].includes(v.status));
-      if(!alreadySent&&requiresPhotoPointage(detail.job)){
+      if(alreadySent){
+        const latest=await offGet("reports",r.job_id);
+        if(latest?.updated_at===r.updated_at)await offDelete("reports",r.job_id);
+        queuedSubmitIds.delete(String(r.job_id));
+        refreshGlobalSyncToolbar().catch(()=>{});
+        return; // Réponse de clôture perdue : ne jamais envoyer le même rapport deux fois.
+      }
+      if(requiresPhotoPointage(detail.job)){
         const fresh=await punchApi("status",{job_id:r.job_id});
         const times=punchTimesFromServerStatus(fresh);
         const latest=await offGet("reports",r.job_id);
         if(!latest||latest.updated_at!==r.updated_at)return; // une sauvegarde plus récente existe
+        if(!times&&r.captured_pointages_verified){
+          // Un rapport valide a ete envoye depuis le terrain. Un retard de
+          // synchronisation ne doit pas annuler la demande d'envoi.
+          await markFailed("reports",r,new Error("Confirmation des deux pointages en attente du serveur."));
+          return;
+        }
         if(!times){
           // Sauvegarder le rapport sans l'envoyer et sans effacer les commentaires,
           // photos d'intervention ou checklists. L'ouvrier le rouvrira après le pointage.
@@ -1417,9 +1514,10 @@ async function syncOfflineQueue(){
     await syncOfflinePunches();
     const reports=(await offAll("reports")).filter(isOwnQueuedItem);
     for(const r of reports)await syncOneQueuedReport(r);
-    const remaining=(await offPhotoMetas()).filter(isOwnQueuedItem);
+    const remaining=(await offPhotoMetas()).filter(p=>isOwnQueuedItem(p)&&!isOfflineJobId(p.job_id));
     const visitResolvers=new Map();
     await syncQueuedPhotoBatch(remaining,async p=>{
+      if(isOfflineJobId(p.job_id))throw new Error("Intervention en attente de creation serveur");
       const report=await offGet("reports",p.job_id);
       let visitId=p.visit_id||report?.visit_id;
       if(visitId&&!String(visitId).startsWith("local-"))return visitId;
@@ -1515,14 +1613,52 @@ function punchTimesFromServerStatus(status){
  return {started_at:first.started_at,ended_at:last.ended_at,
    minutes:Math.round(durations.reduce((a,b)=>a+b,0)),count:completed.length};
 }
+function provisionalPunchTimes(status){
+ const ss=status?.sessions||[];
+ if(!ss.length||ss.some(x=>!x.started_at||!x.ended_at))return null;
+ const first=ss[0],start=Date.parse(first.started_at),end=Date.parse(first.ended_at);
+ if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)return null;
+ return {started_at:first.started_at,ended_at:first.ended_at,
+   minutes:Math.round((end-start)/60000),count:ss.length,local:true};
+}
 function punchReportTimes(jobId=state.current){
- return punchTimesFromServerStatus(punchStatusByJob[jobId]);
+ const status=punchStatusByJob[jobId];
+ return punchTimesFromServerStatus(status)||provisionalPunchTimes(status);
+}
+// Before accepting Send Report, verify the saved photo evidence, not an HTML button
+// and not only a cached status. The server independently rechecks both photos.
+async function capturedTimesForSubmission(jobId){
+ const proof=await capturedProof(jobId);
+ const pending=await offlinePunchesFor(jobId);
+ const remote=punchStatusByJob[jobId]||await offReadApi("punch_status",{job_id:jobId,technician_id:currentTechnicianId()});
+ const accepted=punchTimesFromServerStatus(remote);
+ if(accepted)return accepted;
+ const s=(remote?.sessions||[]).find(x=>x.started_at&&!x.ended_at)||(remote?.sessions||[])[0];
+ const getPart=async mode=>{
+   const part=proof?.[mode];
+   if(part){
+     if(part.confirmed)return part.server_at||part.at;
+     const rec=pending.find(x=>x.request_id===part.request_id&&x.mode===mode);
+     if(!rec)return null;
+     const binary=await offGet("offline_punch_binary",part.request_id);
+     if(!(binary?.bytes instanceof ArrayBuffer)||binary.bytes.byteLength<3500)return null;
+     return part.at;
+   }
+   if(mode==="start"&&s?.start_photo_path)return s.started_at;
+   if(mode==="end"&&s?.end_photo_path)return s.ended_at;
+   return null;
+ };
+ const started_at=await getPart("start"),ended_at=await getPart("end");
+ if(!started_at||!ended_at)throw Error("Prenez les deux photos de pointage avant d'envoyer le rapport.");
+ if(!Number.isFinite(Date.parse(started_at))||!Number.isFinite(Date.parse(ended_at))||Date.parse(ended_at)<=Date.parse(started_at))
+   throw Error("Heures de pointage incoherentes : contactez le responsable.");
+ return {started_at,ended_at,local:true};
 }
 function punchReportStatusHtml(){
  const sessions=punchSessions();const t=punchReportTimes();
- if(t)return `<strong>${punchFmtDate(t.started_at)} → ${punchFmtDate(t.ended_at)}</strong> · ${formatAutoDuration(t.minutes)}<br><small>${t.count} pointage(s) photo reçu(s) par Supabase${sessions.some(s=>s.start_time_source==="telephone_hors_ligne"||s.end_time_source==="telephone_hors_ligne")?" · horaires du téléphone (hors ligne), audit conservé":""}</small>`;
- if(punchStatusByJob[state.current]?.pending_end)return `📴 Photos d'arrivée et de départ enregistrées sur le téléphone, en attente de synchronisation.`;
- if(punchStatusByJob[state.current]?.pending_local)return `📴 Photo d'arrivée sur le téléphone. Pensez à prendre la photo de départ.`;
+ if(t)return `<strong>${punchFmtDate(t.started_at)} → ${punchFmtDate(t.ended_at)}</strong> · ${formatAutoDuration(t.minutes)}<br><small>${t.count} pointage(s) photo ${t.local?"enregistré(s), envoi automatique":"confirmé(s)"}</small>`;
+ if(punchStatusByJob[state.current]?.pending_end)return `Photos d'arrivée et de départ enregistrées. Transmission automatique en cours.`;
+ if(punchStatusByJob[state.current]?.pending_local)return `Photo d'arrivée enregistrée. Prenez la photo de départ à la fin du travail.`;
  if(sessions.some(s=>!s.ended_at))return `Photo d'arrivée confirmée. La photo de départ reste à effectuer.`;
  return `En attente des deux photos de pointage. Vous pouvez préparer ou compléter ce rapport à tout moment.`;
 }
@@ -1538,18 +1674,17 @@ function punchHtml(status,job){
        ${current.start_photo_url?`<a href="${esc(current.start_photo_url)}" target="_blank" rel="noopener noreferrer"><img alt="Photo d'arrivée" src="${esc(current.start_photo_url)}">Arrivée</a>`:""}
        ${current.end_photo_url?`<a href="${esc(current.end_photo_url)}" target="_blank" rel="noopener noreferrer"><img alt="Photo de départ" src="${esc(current.end_photo_url)}">Départ</a>`:""}
     </div>`:"<p class='pointage-hint'>Aucun pointage encore enregistré pour cette intervention.</p>";
-  const gpsWarning=current&&(current.start_gps_status!=="verified"||(current.ended_at&&current.end_gps_status!=="verified"));
+  const gpsWarning=current&&!current._local_capture&&(current.start_gps_status!=="verified"||(current.ended_at&&current.end_gps_status!=="verified"));
   return `<h3>📸 Pointage photo de la prestation</h3>
     <p class="pointage-hint">Prenez une photo du lieu de travail à l’arrivée et une autre au départ avec les boutons de cette prestation. Les horaires sont enregistrés automatiquement. Le rapport peut être préparé ou complété à un autre moment.</p>
     ${view}
     ${gpsWarning?`<div class="pointage-warning">⚠ Pointage enregistré, contrôle de présence à vérifier par le responsable.</div>`:""}
-    ${sessions.some(s=>s.start_time_source==="telephone_hors_ligne"||s.end_time_source==="telephone_hors_ligne")?`<div class="pointage-warning">📱 Horaire du téléphone utilisé pendant la coupure réseau. L'heure de réception du serveur est conservée pour contrôle.</div>`:""}
-    ${!known?`<div class="pointage-warning">Contrôle de présence à confirmer par le responsable.</div>`:""}
-    ${status?.pending_local?`<div class="pointage-warning"><b>📴 Pointage photo enregistré sur ce téléphone.</b> Heure du mobile : en attente de reception par Supabase. ${status.pending_end?"Départ capturé, aucune autre photo nécessaire.":"Pensez à prendre la photo de départ."}</div>`:""}
-    ${!navigator.onLine?`<div class="pointage-warning">Réseau absent : la photo et l'heure du téléphone sont conservées localement jusqu'à synchronisation.</div>`:""}
+    ${known===false?`<div class="pointage-warning">Contrôle de présence à confirmer par le responsable.</div>`:""}
+    ${status?.pending_local?`<div class="pointage-warning">✓ Photo enregistrée. ${status.pending_end?"Votre pointage est terminé.":"Prenez la photo de départ à la fin du travail."} Transmission automatique.</div>`:""}
     <div class="pointage-actions">
-    ${status?.pending_end?`<button class="light" disabled>📴 Départ en attente de synchronisation</button>`:
+    ${sessions.some(s=>s.ended_at)||status?.pending_end?`<button class="light" disabled>✓ Pointage terminé</button>`:
       active?`<button class="primary" onclick="openPunchCamera('end')">📷 J'ai terminé</button>`:
+      sessions.some(s=>s.started_at)?`<button class="light" disabled>Arrivée enregistrée</button>`:
       !["report_received","validated","archived","cancelled"].includes(job.status)?`<button class="primary" onclick="openPunchCamera('start')">📷 Je commence</button>`:""}
     <button class="light" onclick="loadPunchStatus('${esc(job.id)}')">↻ Actualiser</button>
     </div>
@@ -1567,22 +1702,28 @@ async function punchApi(action,payload={}){
  }finally{clearTimeout(timer)}
 }
 async function loadPunchStatus(jobId){
- const card=$("cleaningPunchCard");if(!card||!requiresPhotoPointage(state.currentDetail?.job)||String(state.current)!==String(jobId))return;
+ if(!requiresPhotoPointage(state.currentDetail?.job)||String(state.current)!==String(jobId))return;
  const cacheKey={job_id:jobId,technician_id:currentTechnicianId()};
  let base=await offReadApi("punch_status",cacheKey).catch(()=>null);
- if(navigator.onLine&&!isOfflineJobId(jobId)){
+ const display=async(source)=>{
+   const merged=await offlinePunchOverlay(jobId,source||{ok:false,sessions:[]});
+   punchStatusByJob[jobId]=merged;
+   if(String(state.current)===String(jobId)&&$("cleaningPunchCard")){
+     $("cleaningPunchCard").innerHTML=punchHtml(merged,state.currentDetail.job);
+   }
+   refreshPunchReportDisplay();
+ };
+ await display(base);
+ if(photoNetworkReady()&&!isOfflineJobId(jobId)){
    try{
-     const live=await punchApi("status",{job_id:jobId});base=live;
-     await offCacheApi("punch_status",cacheKey,live);
-   }catch(e){if(!base)base={ok:false,sessions:[],_status_error:String(e.message||e)};}
+     const live=await punchApi("status",{job_id:jobId});
+     base=live;await offCacheApi("punch_status",cacheKey,live);
+     if(String(state.current)===String(jobId))await display(live);
+   }catch(e){
+     if(!base&&String(state.current)===String(jobId)&&$("cleaningPunchCard"))
+       $("cleaningPunchCard").insertAdjacentHTML("beforeend",`<p class="pointage-warning">Synchronisation en attente. Les pointages conserves sur ce telephone restent disponibles.</p>`);
+   }
  }
- const merged=await offlinePunchOverlay(jobId,base||{ok:false,sessions:[]});
- punchStatusByJob[jobId]=merged;
- if(String(state.current)===String(jobId)&&$("cleaningPunchCard")){
-   $("cleaningPunchCard").innerHTML=punchHtml(merged,state.currentDetail.job);
-   if(base?._status_error)$("cleaningPunchCard").insertAdjacentHTML("beforeend",`<p class="pointage-warning">${esc(base._status_error)}</p>`);
- }
- refreshPunchReportDisplay();
 }
 
 function stopPunchCamera(){if(punchStream){punchStream.getTracks().forEach(track=>track.stop());punchStream=null;}}
@@ -1590,6 +1731,9 @@ function closePunchCamera(){if(punchState.busy)return;stopPunchCamera();$("modal
 async function openPunchCamera(mode){
  if(!requiresPhotoPointage(state.currentDetail?.job)||!state.current)return;
  if(punchState.busy||punchStream)return;
+ const status=punchStatusByJob[state.current];
+ if(mode==="start"&&(status?.sessions||[]).some(x=>x.started_at))return alert("L'arrivee a deja ete pointee pour cette intervention.");
+ if(mode==="end"&&(status?.sessions||[]).some(x=>x.ended_at))return alert("Le depart a deja ete pointe pour cette intervention.");
  if(!navigator.mediaDevices?.getUserMedia)return alert("Cette caméra n'est pas disponible. Demandez au responsable une procédure d'exception. La galerie n'est pas acceptée pour le pointage.");
  // L'autorisation caméra est demandée dans le geste utilisateur avant tout await.
  const streamPromise=navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
@@ -1673,22 +1817,22 @@ async function capturePunch(){
   }
   const rec={request_id:reqId,job_id:jobId,technician_id:currentTechnicianId(),mode,
     captured_at_device:capturedAtDevice,device_offset_minutes:deviceOffsetMinutes,
-    was_offline:!navigator.onLine||isOfflineJobId(jobId)||weakNetwork(),gps:gps||null,
+    was_offline:!navigator.onLine||weakNetwork(),gps:gps||null,
     attempts:0,next_retry_at:0,sync_state:"local"};
   await offSavePunch(rec,blob);
   refreshNetworkBadge().catch(()=>{});
   console.info("[DL TECHNIK] Photo de pointage conservée localement après",Math.round(performance.now()-startedPerformance),"ms.");
   punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";
   punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};
-  toast(mode==="start"?"📴 Arrivée enregistrée sur le téléphone":"📴 Départ enregistré sur le téléphone");
-  await loadPunchStatus(jobId).catch(console.warn);
-  if(navigator.onLine)scheduleBackgroundPhotoSync(100);
+  toast(mode==="start"?"Arrivée enregistrée":"Départ enregistré");
+  loadPunchStatus(jobId).catch(console.warn);
+  scheduleBackgroundPhotoSync(100);
 
  }catch(e){
   const saved=await offGet("offline_punches",reqId).catch(()=>null);
   if(saved){
     punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";
-    toast("📴 Photo conservée sur le téléphone · en attente d'envoi");
+    toast("Photo de pointage enregistrée");
     loadPunchStatus(jobId).catch(console.warn);
     if(navigator.onLine)scheduleBackgroundPhotoSync(1000);
     return;
@@ -1847,10 +1991,9 @@ function renderHomeData(d,fromCache=false){
   const first=[...(state.offlineJobs||[]),...(d.in_progress||[]),...(d.assigned||[])][0];
   $("content").innerHTML=`
     ${queuedSubmitIds.size?`<div class="sync-card" role="status"><strong>✓ Rapport enregistré sur ce téléphone.</strong> ${queuedSubmitIds.size} rapport(s) en cours d'envoi automatique avec leurs photos. Vous pouvez commencer l'intervention suivante. Gardez DL TECHNIK ouvert pour poursuivre les transferts sur iPhone.</div>`:''}
-    ${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Les données affichées proviennent de la dernière synchronisation.</div>`:""}
     ${fromCache&&navigator.onLine?`<div class="sync-card">Affichage instantané des dernières données. <strong>Actualisation en arrière-plan…</strong></div>`:""}
     ${first?`<div class="card hero-card"><div class="section-title"><span>${d.in_progress?.length?"Intervention en cours":"Prochaine intervention"}</span><span class="chip ${statusClass(first.status)}">${statusLabel(first.status)}</span></div>${jobCard(first,true)}</div>`:""}
-    ${(state.offlineJobs||[]).length?`<div class="sync-card"><strong>📴 ${(state.offlineJobs||[]).length} intervention(s) créée(s) sur ce téléphone.</strong> Elles seront transmises dès que le réseau revient. Ne désinstallez pas l'application.</div>`:""}
+    ${(state.offlineJobs||[]).length?`<div class="sync-card"><strong>${(state.offlineJobs||[]).length} intervention(s) enregistrée(s).</strong> Transmission automatique en cours.</div>`:""}
     <div class="card"><div class="section-title">Aujourd'hui</div><div class="kpis"><div class="kpi"><b>${d.assigned?.length||0}</b><span>À FAIRE</span></div><div class="kpi"><b>${d.in_progress?.length||0}</b><span>EN COURS</span></div><div class="kpi"><b>${d.completed?.length||0}</b><span>TERMINÉES</span></div></div></div>
     <div class="card"><div class="section-title">Accès rapide</div>
       <button class="big-action" onclick="go('jobs')"><span class="ico">🛠️</span><span><b>Mes interventions</b><small>Rapports à compléter pour les travaux attribués</small></span><span class="chev">›</span></button>
@@ -1870,7 +2013,7 @@ function jobCard(j,compact=false){
   const del=canShowDelete&&!queuedSubmitIds.has(String(j.id))?`<div class="job-actions"><button type="button" class="job-list-delete"
     ${navigator.onLine?"":"disabled title=\"Connexion requise pour supprimer\""}
     onclick="event.stopPropagation();deleteUnsentFromList('${esc(j.id)}',this)">🗑 Supprimer</button></div>`:"";
-  return `<div class="job" onclick="go('detail','${esc(j.id)}')"><div class="job-top"><div class="job-main"><div class="job-title">${esc(j.title||"Intervention")}</div><div class="job-place">${esc(j.location_label||"Lieu non renseigné")}${j.location_address?" · "+esc(j.location_address):""}</div></div><div class="job-date">${fmtDate(j.planned_date||j.created_at)}</div></div><div class="job-meta">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${j.offline_local?"📴 Local · en attente":queuedSubmitIds.has(String(j.id))?"Envoi en cours":statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||j.intervention_type_code||"")}</span>${requiresPhotoPointage(j)?`<span class="chip" style="background:#e4f7eb;border-color:#abd9bb;color:#125b33">📷 Pointage photo dans la fiche</span>`:""}${!compact?`<span class="chip">⏱ ${fmtMinutes(j.total_minutes)}</span><span class="chip">📷 ${Number(j.photo_count||0)}</span>`:""}</div>${del}</div>`;
+  return `<div class="job" onclick="go('detail','${esc(j.id)}')"><div class="job-top"><div class="job-main"><div class="job-title">${esc(j.title||"Intervention")}</div><div class="job-place">${esc(j.location_label||"Lieu non renseigné")}${j.location_address?" · "+esc(j.location_address):""}</div></div><div class="job-date">${fmtDate(j.planned_date||j.created_at)}</div></div><div class="job-meta">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${j.offline_local?"Enregistrée":queuedSubmitIds.has(String(j.id))?"Envoi en cours":statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||j.intervention_type_code||"")}</span>${requiresPhotoPointage(j)?`<span class="chip" style="background:#e4f7eb;border-color:#abd9bb;color:#125b33">📷 Pointage photo dans la fiche</span>`:""}${!compact?`<span class="chip">⏱ ${fmtMinutes(j.total_minutes)}</span><span class="chip">📷 ${Number(j.photo_count||0)}</span>`:""}</div>${del}</div>`;
 }
 
 /* ---------------- LISTS ---------------- */
@@ -1886,7 +2029,7 @@ async function jobs(done){
 }
 function renderJobsData(arr,done,fromCache=false){
   if(!done)arr=[...(state.offlineJobs||[]),...arr];
-  $("content").innerHTML=`${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Liste issue de la dernière synchronisation.</div>`:""}${fromCache&&navigator.onLine?`<div class="sync-card">Dernière liste affichée immédiatement. <strong>Actualisation…</strong></div>`:""}${arr.length?`<div>${arr.map(j=>jobCard(j)).join("")}</div>`:`<div class="card empty"><div class="ico">${done?"✓":"🛠️"}</div>${done?"Aucune intervention terminée.":"Aucune intervention à traiter."}</div>`}`
+  $("content").innerHTML=`${fromCache&&navigator.onLine?`<div class="sync-card">Dernière liste affichée immédiatement. <strong>Actualisation…</strong></div>`:""}${arr.length?`<div>${arr.map(j=>jobCard(j)).join("")}</div>`:`<div class="card empty"><div class="ico">${done?"✓":"🛠️"}</div>${done?"Aucune intervention terminée.":"Aucune intervention à traiter."}</div>`}`
 }
 
 /* ---------------- NEW JOB ---------------- */
@@ -1897,7 +2040,7 @@ async function newJob(){
   try{
     const r=await ensureRefs();
     if(!r.can_create_jobs){$("content").innerHTML='<div class="card empty">Votre profil ne permet pas de créer de nouvelles interventions.</div>';return}
-    // V3.9.26 : prioriser le type le plus utilisé uniquement dans le formulaire de création.
+    // V3.9.27 : prioriser le type le plus utilisé uniquement dans le formulaire de création.
     // Les codes, la liste reçue de l'API et l'ordre des autres types restent inchangés.
     const types=[...(r.types||[])];
     const regularIndex=types.findIndex(t=>String(t.label||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase()==="nettoyage regulier");
@@ -1917,8 +2060,6 @@ async function newJob(){
         <div class="team-picker">${(r.technicians||[]).filter(u=>String(u.id)!==String(r.current_technician_id)).map(u=>`<label class="team-choice"><input type="checkbox" class="new-team-tech" value="${esc(u.id)}"><span><b>${esc(u.display_name)}</b>${u.trade?`<small>${esc(u.trade)}</small>`:""}</span></label>`).join("")||'<div class="sub">Aucun autre technicien actif.</div>'}</div>
       </div>
       <button id="createBtn" class="primary" style="width:100%" onclick="createJob()">Créer l'intervention</button>
-      <button class="light" style="width:100%;margin-top:8px" onclick="createJob(true)">📴 Créer sur ce téléphone (réseau faible)</button>
-      <div class="sub" style="margin-top:7px">En mode hors ligne, le chantier et les pointages sont d'abord enregistrés sur ce téléphone, puis envoyés automatiquement dès le retour du réseau.</div>
     </div>`;
   }catch(e){$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
@@ -1929,7 +2070,9 @@ function searchCopro(){
   box.innerHTML=arr.map(c=>`<div class="result" onclick="selectCopro('${c.id}')"><b>${esc(c.name)}</b><span>${esc([c.address,c.postal_code,c.city].filter(Boolean).join(" "))}</span></div>`).join("")||'<div class="result">Aucun résultat</div>';box.classList.remove("hidden");
 }
 function selectCopro(id){const c=state.refs.copros.find(x=>x.id===id);if(!c)return;$("coproId").value=id;$("coproSearch").value=c.name;$("coproSelected").textContent=[c.address,c.postal_code,c.city].filter(Boolean).join(" ");$("coproResults").classList.add("hidden")}
-async function createJob(forceOffline=false){
+async function createJob(){
+  // Une seule voie de creation avec ou sans signal : stockage local durable en premier.
+  // Une requete incertaine ne declenche jamais une seconde creation avec un nouvel ID.
   const btn=$("createBtn");if(btn)btn.disabled=true;
   try{
     const loc=$("locationType").value;
@@ -1940,19 +2083,12 @@ async function createJob(forceOffline=false){
       intervention_type_code:$("newType").value,priority:$("newPriority").value,
       title:$("newTitle").value,description:$("newDesc").value,
       planned_date:$("newDate").value,additional_technician_ids:additional};
-    if(forceOffline||!navigator.onLine){
-      const rec=await createOfflineLocalJob(payload);
-      toast("📴 Intervention enregistrée sur ce téléphone");
-      await go("detail",rec.local_id);
-      if(navigator.onLine)scheduleBackgroundPhotoSync(700);
-      return;
-    }
-    const r=await api("create_job",payload);
-    toast("Intervention créée");
-    await api("prepare_visit",{job_id:r.job_id});
-    try{await offDelete("kv",offCacheKey("job_detail",{job_id:r.job_id}))}catch(_){}
-    await go("detail",r.job_id);
-  }catch(e){alert(e.message)}finally{if(btn?.isConnected)btn.disabled=false}
+    const rec=await createOfflineLocalJob(payload);
+    toast("Intervention creee");
+    await go("detail",rec.local_id);
+    scheduleBackgroundPhotoSync(100);
+  }catch(e){alert("Intervention non enregistree : "+String(e?.message||e))}
+  finally{if(btn?.isConnected)btn.disabled=false}
 }
 
 /* ---------------- DETAIL / VISIT ---------------- */
@@ -2011,7 +2147,7 @@ function renderDetail(){
   setHead(j.title,j.location_label||"Intervention DL TECHNIK");
   const team=(j.assignees||[]).map(a=>a.display_name).filter(Boolean);
   $("content").innerHTML=`
-    ${!navigator.onLine||isOfflineJobId(j.id)?`<div class="offline-banner"><b>📴 Enregistrement local.</b> Création, photos et horaires sont conservés sur cet appareil. Supabase confirmera la réception dès le retour du réseau. Ne supprimez pas l'application.</div>`:""}
+    ${isOfflineJobId(j.id)?`<div class="offline-banner">Intervention enregistrée. Transmission automatique en cours.</div>`:""}
     <div id="photoSyncPanel" class="photo-sync-panel" role="status" aria-live="polite"></div>
     <button class="back" onclick="go('jobs')">← Retour aux interventions</button>
     <div class="card"><div class="detail-head"><div class="job-meta" style="margin-top:0">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||"")}</span></div><h2>${esc(j.title)}</h2><div class="detail-place">📍 ${esc(j.location_label||"")}${j.location_address?" · "+esc(j.location_address):""}</div>
@@ -2330,42 +2466,35 @@ async function saveVisit(silent=false){
 }
 let submittingVisitLocally=false;
 async function finishVisit(){
-  if(submittingVisitLocally)return;
-  submittingVisitLocally=true;
-  const jobId=state.current;
-  const button=$("finishVisitButton");
-  if(button){button.disabled=true;button.textContent="Vérification du pointage…"}
-  try{
-    if(requiresPhotoPointage(state.currentDetail?.job)){
-      if(!navigator.onLine||isOfflineJobId(jobId))throw Error("Les photos de pointage et le rapport sont conservés localement. La transmission du rapport sera possible après synchronisation des deux pointages.");
-      // Ne pas faire confiance à un état ancien de la PWA ou à un rapport créé avant la mise à jour.
-      const live=await punchApi("status",{job_id:jobId});
-      if(String(state.current)!==String(jobId))throw Error("L'intervention affichée a changé. Rouvrez votre rapport.");
-      punchStatusByJob[jobId]=live;
-      refreshPunchReportDisplay();
-      if(!punchTimesFromServerStatus(live))throw Error("Les deux photos de pointage ne sont pas confirmées pour cette prestation. Utilisez « Je commence » puis « J'ai terminé » dans la fiche de l'intervention. Le brouillon est conservé.");
-    }
-    const p=visitPayload();
-    if(!String(p.work_done||"").trim())throw Error("Indiquez le travail effectué avant d'envoyer le rapport.");
-    if(!p.started_at||!p.ended_at)throw Error("Les deux heures de pointage doivent être confirmées avant l'envoi.");
-    if(new Date(p.ended_at).getTime()<=new Date(p.started_at).getTime())throw Error("L'heure de départ doit être postérieure à celle d'arrivée.");
-    if(!confirm("Envoyer ce rapport en arrière-plan ? Les photos seront synchronisées automatiquement, puis le rapport sera clôturé dans WAPILOT. Vous pourrez continuer votre travail immédiatement."))return;
-    if(button)button.textContent="Enregistrement local…";
-    if(reportSaveTimer){clearTimeout(reportSaveTimer);reportSaveTimer=null}
-    const rec=await offQueueReport(true);
-    queuedSubmitIds.add(String(rec.job_id));
-    state.currentQueuedSubmit=true;
-    setPhotoSyncStatus("rapport mis en file", "Rapport sécurisé localement ; photos et clôture automatique à suivre");
-    scheduleBackgroundPhotoSync(100);
-    go("home").catch(e=>console.warn("Navigation après envoi",e));
-    toast("Rapport enregistré · transmission automatique en cours");
-  }catch(e){alert(String(e?.message||e))}
-  finally{
-    submittingVisitLocally=false;
-    if(button?.isConnected){button.disabled=false;button.textContent="Envoyer rapport et continuer"}
-  }
+ if(submittingVisitLocally)return;
+ submittingVisitLocally=true;
+ const jobId=state.current;
+ const button=$("finishVisitButton");
+ if(button){button.disabled=true;button.textContent="Enregistrement du rapport…"}
+ try{
+   if(!jobId||!state.currentDetail?.job)throw Error("Intervention introuvable.");
+   if(state.currentQueuedSubmit)throw Error("Le rapport a deja ete marque pour transmission.");
+   const p=visitPayload();
+   if(!String(p.work_done||"").trim())throw Error("Indiquez le travail effectué avant d'envoyer le rapport.");
+   const times=requiresPhotoPointage(state.currentDetail.job)?await capturedTimesForSubmission(jobId):null;
+   if(times)Object.assign(p,{started_at:times.started_at,ended_at:times.ended_at});
+   if(!p.started_at||!p.ended_at||Date.parse(p.ended_at)<=Date.parse(p.started_at))
+     throw Error("Prenez les deux photos de pointage avant d'envoyer le rapport.");
+   if(!confirm("Envoyer ce rapport ? Les photos et le rapport seront transmis automatiquement dès que le réseau le permet. Vous pouvez continuer vos interventions."))return;
+   if(reportSaveTimer){clearTimeout(reportSaveTimer);reportSaveTimer=null}
+   const rec=await offQueueReport(true,{started_at:p.started_at,ended_at:p.ended_at});
+   queuedSubmitIds.add(String(rec.job_id));
+   state.currentQueuedSubmit=true;
+   setPhotoSyncStatus("rapport pret", "Rapport enregistre ; transmission automatique");
+   scheduleBackgroundPhotoSync(100);
+   go("home").catch(e=>console.warn("Navigation après envoi",e));
+   toast("Rapport enregistré · envoi automatique");
+ }catch(e){alert(String(e?.message||e))}
+ finally{
+   submittingVisitLocally=false;
+   if(button?.isConnected){button.disabled=false;button.textContent="Envoyer rapport et continuer"}
+ }
 }
-
 
 /* ---------------- PHOTOS ---------------- */
 let cameraStream=null;
