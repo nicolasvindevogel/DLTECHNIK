@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.23</title>
+<title>DL TECHNIK · V3.9.24</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -370,7 +370,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.23</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.24</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="État de la synchronisation automatique">
@@ -844,7 +844,7 @@ async function showPhotoSyncDiagnostic(){
     const relevant=all.filter(isOwnQueuedItem),reports=allReports.filter(isOwnQueuedItem);
     const faults=relevant.filter(p=>p.last_error).map(p=>({statut:p.sync_state||"local",etape:p.last_stage||"",tentatives:p.attempts||0,erreur:scrubSyncMessage(p.last_error)}));
     const rFaults=reports.filter(r=>r.last_error).map(r=>({statut:r.sync_state||"local",etape:r.last_stage||"",tentatives:r.attempts||0,erreur:scrubSyncMessage(r.last_error)}));
-    const d={version:"3.9.23",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
+    const d={version:"3.9.24",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
       reseauAnnonce:navigator.onLine,sessionDisponible:!!me,synchronisationEnCours:offlineSyncRunning,
       heure:new Date().toISOString(),etapeEnCours:{...lastPhotoSyncStatus,message:scrubSyncMessage(lastPhotoSyncStatus.message)},
       compteur:{photosEnAttente:relevant.length,photosAutreProfil:all.length-relevant.length,rapportsEnAttente:reports.length,
@@ -1706,12 +1706,17 @@ async function newJob(){
   try{
     const r=await ensureRefs();
     if(!r.can_create_jobs){$("content").innerHTML='<div class="card empty">Votre profil ne permet pas de créer de nouvelles interventions.</div>';return}
+    // V3.9.24 : prioriser le type le plus utilisé uniquement dans le formulaire de création.
+    // Les codes, la liste reçue de l'API et l'ordre des autres types restent inchangés.
+    const types=[...(r.types||[])];
+    const regularIndex=types.findIndex(t=>String(t.label||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase()==="nettoyage regulier");
+    if(regularIndex>0)types.unshift(types.splice(regularIndex,1)[0]);
     $("content").innerHTML=`<div class="card">
       <div class="switch"><button id="locCoproBtn" class="on" onclick="setLoc('copro')">Copropriété</button><button id="locExtBtn" onclick="setLoc('external')">Autre lieu</button></div>
       <input type="hidden" id="locationType" value="copro"><input type="hidden" id="coproId">
       <div id="coproFields"><div class="field searchbox"><label>RECHERCHER UNE COPROPRIÉTÉ</label><input id="coproSearch" autocomplete="off" placeholder="Tapez le nom…" oninput="searchCopro()"><div id="coproResults" class="results hidden"></div></div><div id="coproSelected" class="sub"></div></div>
       <div id="extFields" class="hidden"><div class="field"><label>NOM DU LIEU / CLIENT</label><input id="extName"></div><div class="field"><label>ADRESSE *</label><input id="extAddress"></div><div class="two"><div class="field"><label>CODE POSTAL</label><input id="extPostal"></div><div class="field"><label>VILLE *</label><input id="extCity"></div></div></div>
-      <div class="two"><div class="field"><label>TYPE D'INTERVENTION</label><select id="newType">${r.types.map(t=>`<option value="${esc(t.code)}">${esc(t.label)}</option>`).join("")}</select></div><div class="field"><label>PRIORITÉ</label><select id="newPriority"><option value="normal">Normale</option><option value="high">Prioritaire</option><option value="urgent">Urgente</option><option value="low">Faible</option></select></div></div>
+      <div class="two"><div class="field"><label>TYPE D'INTERVENTION</label><select id="newType">${types.map(t=>`<option value="${esc(t.code)}">${esc(t.label)}</option>`).join("")}</select></div><div class="field"><label>PRIORITÉ</label><select id="newPriority"><option value="normal">Normale</option><option value="high">Prioritaire</option><option value="urgent">Urgente</option><option value="low">Faible</option></select></div></div>
       <div class="field"><label>OBJET *</label><input id="newTitle" placeholder="Ex. Remplacer l'éclairage du hall"></div>
       <div class="field"><label>TRAVAIL À EFFECTUER</label><textarea id="newDesc" placeholder="Décrivez brièvement la demande…"></textarea></div>
       <div class="field"><label>DATE</label><input id="newDate" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
