@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.21</title>
+<title>DL TECHNIK · V3.9.23</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -370,7 +370,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.22</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.23</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="État de la synchronisation automatique">
@@ -844,7 +844,7 @@ async function showPhotoSyncDiagnostic(){
     const relevant=all.filter(isOwnQueuedItem),reports=allReports.filter(isOwnQueuedItem);
     const faults=relevant.filter(p=>p.last_error).map(p=>({statut:p.sync_state||"local",etape:p.last_stage||"",tentatives:p.attempts||0,erreur:scrubSyncMessage(p.last_error)}));
     const rFaults=reports.filter(r=>r.last_error).map(r=>({statut:r.sync_state||"local",etape:r.last_stage||"",tentatives:r.attempts||0,erreur:scrubSyncMessage(r.last_error)}));
-    const d={version:"3.9.22",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
+    const d={version:"3.9.23",plateforme:isIOSPhotoDevice()?"iOS":/Android/i.test(navigator.userAgent)?"Android":"autre",
       reseauAnnonce:navigator.onLine,sessionDisponible:!!me,synchronisationEnCours:offlineSyncRunning,
       heure:new Date().toISOString(),etapeEnCours:{...lastPhotoSyncStatus,message:scrubSyncMessage(lastPhotoSyncStatus.message)},
       compteur:{photosEnAttente:relevant.length,photosAutreProfil:all.length-relevant.length,rapportsEnAttente:reports.length,
@@ -1183,7 +1183,7 @@ async function syncOneQueuedReport(r){
       const detail=await api("job_detail",{job_id:r.job_id},{skipOffline:true,timeoutMs:12000});
       const alreadySent=["report_received","validated","archived"].includes(detail.job?.status)
         ||(detail.visits||[]).some(v=>String(v.id)===String(r.visit_id)&&["submitted","validated"].includes(v.status));
-      if(!alreadySent&&isCleaningJob(detail.job)){
+      if(!alreadySent&&requiresPhotoPointage(detail.job)){
         const fresh=await punchApi("status",{job_id:r.job_id});
         const times=punchTimesFromServerStatus(fresh);
         const latest=await offGet("reports",r.job_id);
@@ -1326,10 +1326,9 @@ async function api(action,payload={},options={}){
 const PUNCH_API=CFG.url+"/functions/v1/dl-technik-pointage";
 let punchStream=null,punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};
 let punchStatusByJob={};
-// Pointage visible pour toute intervention reliée à une copropriété WAPILOT.
-// Le code de type peut varier selon le rapport (ou être absent dans une vue API).
-// Les contrôles serveur et SQL restent obligatoires avant tout enregistrement.
-function isCleaningJob(job){return !!(job&&job.copro_id&&job.status!=="cancelled");}
+// Pointage obligatoire pour TOUTE intervention DL TECHNIK, quel que soit le type,
+// la copropriete associee ou le lieu libre. Les controles serveur/SQL font foi.
+function requiresPhotoPointage(job){return !!(job&&job.id&&job.status!=="cancelled");}
 function punchFmtDate(iso){return iso?new Date(iso).toLocaleString("fr-BE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";}
 function punchFmtDuration(a,b){if(!a||!b)return "—";return fmtMinutes(Math.max(0,Math.floor((new Date(b)-new Date(a))/60000)));}
 function punchStatusLabel(x){return ({verified:"Confirmé",outside:"À vérifier",imprecise:"À vérifier",unconfigured:"À vérifier",borderline:"À vérifier"})[x]||"À vérifier";}
@@ -1373,7 +1372,7 @@ function punchHtml(status,job){
     </div>`:"<p class='pointage-hint'>Aucun pointage encore enregistré pour cette intervention.</p>";
   const gpsWarning=current&&(current.start_gps_status!=="verified"||(current.ended_at&&current.end_gps_status!=="verified"));
   return `<h3>📸 Pointage photo de la prestation</h3>
-    <p class="pointage-hint">Prenez une photo de la façade à l’arrivée et une autre au départ avec les boutons de cette prestation. Les horaires sont enregistrés automatiquement. Le rapport peut être préparé ou complété à un autre moment.</p>
+    <p class="pointage-hint">Prenez une photo du lieu de travail à l’arrivée et une autre au départ avec les boutons de cette prestation. Les horaires sont enregistrés automatiquement. Le rapport peut être préparé ou complété à un autre moment.</p>
     ${view}
     ${gpsWarning?`<div class="pointage-warning">⚠ Pointage enregistré, contrôle de présence à vérifier par le responsable.</div>`:""}
     ${!known?`<div class="pointage-warning">Contrôle de présence à confirmer par le responsable.</div>`:""}
@@ -1397,7 +1396,7 @@ async function punchApi(action,payload={}){
  }finally{clearTimeout(timer)}
 }
 async function loadPunchStatus(jobId){
- const card=$("cleaningPunchCard");if(!card||!isCleaningJob(state.currentDetail?.job)||String(state.current)!==String(jobId))return;
+ const card=$("cleaningPunchCard");if(!card||!requiresPhotoPointage(state.currentDetail?.job)||String(state.current)!==String(jobId))return;
  const cacheKey={job_id:jobId,technician_id:currentTechnicianId()};
  if(!punchStatusByJob[jobId]){const cached=await offReadApi("punch_status",cacheKey).catch(()=>null);if(cached)punchStatusByJob[jobId]=cached;}
  if(!navigator.onLine){card.innerHTML=punchHtml(punchStatusByJob[jobId]||{},state.currentDetail.job);refreshPunchReportDisplay();return;}
@@ -1414,14 +1413,14 @@ function stopPunchCamera(){if(punchStream){punchStream.getTracks().forEach(track
 function closePunchCamera(){if(punchState.busy)return;stopPunchCamera();$("modalRoot").innerHTML="";punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};}
 async function openPunchCamera(mode){
  if(!navigator.onLine)return alert("Une connexion Internet est indispensable pour enregistrer une heure serveur fiable.");
- if(!isCleaningJob(state.currentDetail?.job)||!state.current)return;
+ if(!requiresPhotoPointage(state.currentDetail?.job)||!state.current)return;
  if(punchState.busy||punchStream)return;
  if(!navigator.mediaDevices?.getUserMedia)return alert("Cette caméra n'est pas disponible. Demandez au responsable une procédure d'exception. La galerie n'est pas acceptée pour le pointage.");
  // L'autorisation caméra est demandée dans le geste utilisateur avant tout await.
  const streamPromise=navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
  punchState={mode,jobId:state.current,requestId:crypto.randomUUID(),busy:false,gpsPromise:null,gpsFix:null,gpsError:null};
- $("modalRoot").innerHTML=`<div class="pointage-camera" role="dialog" aria-modal="true"><div class="punch-title">${mode==="start"?"📷 Photo de façade — Arrivée":"📷 Photo de façade — Départ"}</div>
- <video id="punchVideo" class="pointage-video" autoplay muted playsinline></video><div id="punchCaptureStatus" class="punch-capture-status" role="status" aria-live="polite"></div><div class="punch-info">Cadrez la façade de la résidence. Aucune photo de galerie n'est acceptée. Cette photo sert à confirmer le pointage de votre prestation.</div>
+ $("modalRoot").innerHTML=`<div class="pointage-camera" role="dialog" aria-modal="true"><div class="punch-title">${mode==="start"?"📷 Photo du lieu — Arrivée":"📷 Photo du lieu — Départ"}</div>
+ <video id="punchVideo" class="pointage-video" autoplay muted playsinline></video><div id="punchCaptureStatus" class="punch-capture-status" role="status" aria-live="polite"></div><div class="punch-info">Cadrez la façade ou l’entrée du lieu de travail. Aucune photo de galerie n'est acceptée. Cette photo sert à confirmer le pointage de votre prestation.</div>
  <div class="punch-error" id="punchError" role="alert"></div><div class="pointage-controls"><button class="light" onclick="closePunchCamera()">Annuler</button><button class="primary" id="punchCaptureBtn" onclick="capturePunch()" disabled>📸 Prendre la photo et pointer</button></div></div>`;
  try{
   punchStream=await streamPromise;
@@ -1522,7 +1521,7 @@ async function capturePunch(){
 
 
 /* Notice de pointage V3.9.18 : information, pas un consentement ni un contrôle caché. */
-const POINTAGE_NOTICE_KEY="dl-technik-v3-9-18-pointage-information";
+const POINTAGE_NOTICE_KEY="dl-technik-v3-9-23-pointage-toutes-interventions";
 function closePointageNotice(){
  const n=document.getElementById("pointageNoticeOverlay");if(n)n.remove();
 }
@@ -1539,14 +1538,14 @@ function openPointageNotice(force=false){
  layer.innerHTML=`<section class="pointage-notice" role="dialog" aria-modal="true" aria-labelledby="pointageNoticeTitle">
   <h2 id="pointageNoticeTitle">📸 Nouveau : pointage des heures par photo</h2>
   <p>Afin d'améliorer le suivi des prestations, <strong>un nouveau système de pointage par photo a été ajouté dans DL TECHNIK.</strong> Il enregistre automatiquement les heures d'arrivée et de départ.</p>
-  <h3>1. À votre arrivée dans la résidence</h3>
-  <ol><li>Ouvrez la prestation concernée dans DL TECHNIK.</li><li>Appuyez sur le nouveau bouton <strong>« Je commence »</strong>.</li><li>Prenez une photo de la façade de la résidence avec <strong>l'appareil photo intégré à DL TECHNIK</strong>.</li><li>Une fois la photo confirmée, votre heure d'arrivée est automatiquement enregistrée.</li></ol>
+  <h3>1. À votre arrivée sur le lieu d’intervention</h3>
+  <ol><li>Ouvrez la prestation concernée dans DL TECHNIK.</li><li>Appuyez sur le nouveau bouton <strong>« Je commence »</strong>.</li><li>Prenez une photo de la façade ou de l’entrée du lieu avec <strong>l'appareil photo intégré à DL TECHNIK</strong>.</li><li>Une fois la photo confirmée, votre heure d'arrivée est automatiquement enregistrée.</li></ol>
   <h3>2. À la fin de votre prestation</h3>
   <ol><li>Retournez dans la même prestation.</li><li>Appuyez sur le nouveau bouton <strong>« J'ai terminé »</strong>.</li><li>Prenez une nouvelle photo de la façade avec l'appareil photo intégré à DL TECHNIK.</li><li>Votre heure de départ est enregistrée et la durée est calculée automatiquement.</li></ol>
   <h3>3. Et pour les rapports d'intervention ?</h3>
-  <p><strong>Rien ne change dans votre manière de compléter les rapports !</strong> Vous pouvez les créer plusieurs jours à l'avance, les compléter progressivement, et terminer la rédaction plus tard, même après avoir quitté la résidence. <strong>Le pointage et le rapport sont indépendants.</strong> Seuls les deux pointages photo doivent être réalisés sur place.</p>
+  <p><strong>Rien ne change dans votre manière de compléter les rapports !</strong> Vous pouvez les créer plusieurs jours à l'avance, les compléter progressivement, et terminer la rédaction plus tard, même après avoir quitté la résidence. <strong>Le pointage et le rapport sont indépendants.</strong> Les deux pointages photo doivent être réalisés sur place pour chaque type de travail et chaque intervention, même à une adresse libre.</p>
   <h3>4. Informations importantes</h3>
-  <ul><li>Les photos de pointage se prennent <strong>uniquement avec les nouveaux boutons dans la prestation</strong>.</li><li>Les photos « Avant » et « Après » du rapport ne remplacent pas les photos de pointage.</li><li>Une photo provenant de la galerie du téléphone ne peut pas servir au pointage.</li><li>Le téléphone est <strong>géolocalisé ponctuellement au moment des deux pointages</strong> pour vérifier la proximité avec la résidence. <strong>Aucun suivi GPS permanent n'est effectué.</strong></li><li>Les heures sont enregistrées automatiquement ; vous n'avez plus à les saisir pour les prestations en copropriété.</li><li>En cas de problème technique, contactez votre responsable.</li></ul>
+  <ul><li>Les photos de pointage se prennent <strong>uniquement avec les nouveaux boutons dans la prestation</strong>.</li><li>Les photos « Avant » et « Après » du rapport ne remplacent pas les photos de pointage.</li><li>Une photo provenant de la galerie du téléphone ne peut pas servir au pointage.</li><li>Le téléphone peut fournir <strong>une localisation ponctuelle au moment des deux pointages</strong> pour vérifier la proximité avec le lieu, lorsque les coordonnées sont disponibles. Si l’accès GPS est refusé, les photos restent obligatoires et la localisation est notée non vérifiée. <strong>Aucun suivi GPS permanent n'est effectué.</strong></li><li>Les heures sont enregistrées automatiquement ; vous n'avez plus à les saisir pour toutes les interventions.</li><li>En cas de problème technique, contactez votre responsable.</li></ul>
   <p><strong>Pensez à effectuer les deux photos de pointage à chaque prestation.</strong> Les données de pointage sont réservées aux responsables autorisés pour le suivi des prestations.</p>
   <button type="button" class="primary pointage-notice-ack" onclick="acknowledgePointageNotice()">J'ai compris</button>
   <small>Ce bouton confirme la lecture de l'information, il ne constitue pas un consentement au traitement.</small>
@@ -1682,7 +1681,7 @@ function jobCard(j,compact=false){
   const del=canShowDelete&&!queuedSubmitIds.has(String(j.id))?`<div class="job-actions"><button type="button" class="job-list-delete"
     ${navigator.onLine?"":"disabled title=\"Connexion requise pour supprimer\""}
     onclick="event.stopPropagation();deleteUnsentFromList('${esc(j.id)}',this)">🗑 Supprimer</button></div>`:"";
-  return `<div class="job" onclick="go('detail','${esc(j.id)}')"><div class="job-top"><div class="job-main"><div class="job-title">${esc(j.title||"Intervention")}</div><div class="job-place">${esc(j.location_label||"Lieu non renseigné")}${j.location_address?" · "+esc(j.location_address):""}</div></div><div class="job-date">${fmtDate(j.planned_date||j.created_at)}</div></div><div class="job-meta">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${queuedSubmitIds.has(String(j.id))?"Envoi en cours":statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||j.intervention_type_code||"")}</span>${isCleaningJob(j)?`<span class="chip" style="background:#e4f7eb;border-color:#abd9bb;color:#125b33">📷 Pointage photo dans la fiche</span>`:""}${!compact?`<span class="chip">⏱ ${fmtMinutes(j.total_minutes)}</span><span class="chip">📷 ${Number(j.photo_count||0)}</span>`:""}</div>${del}</div>`;
+  return `<div class="job" onclick="go('detail','${esc(j.id)}')"><div class="job-top"><div class="job-main"><div class="job-title">${esc(j.title||"Intervention")}</div><div class="job-place">${esc(j.location_label||"Lieu non renseigné")}${j.location_address?" · "+esc(j.location_address):""}</div></div><div class="job-date">${fmtDate(j.planned_date||j.created_at)}</div></div><div class="job-meta">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${queuedSubmitIds.has(String(j.id))?"Envoi en cours":statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||j.intervention_type_code||"")}</span>${requiresPhotoPointage(j)?`<span class="chip" style="background:#e4f7eb;border-color:#abd9bb;color:#125b33">📷 Pointage photo dans la fiche</span>`:""}${!compact?`<span class="chip">⏱ ${fmtMinutes(j.total_minutes)}</span><span class="chip">📷 ${Number(j.photo_count||0)}</span>`:""}</div>${del}</div>`;
 }
 
 /* ---------------- LISTS ---------------- */
@@ -1803,14 +1802,13 @@ function renderDetail(){
       ${team.length?`<div class="team-summary">${team.map(n=>`<span class="team-chip">👤 ${esc(n)}</span>`).join("")}</div>`:""}
       ${!["report_received","validated","archived","cancelled"].includes(j.status)?`<div class="team-actions"><span class="sub">Équipe affectée à cette intervention</span><button class="light" onclick="openAddTechnicianModal()">＋ Ajouter un technicien</button></div>`:""}
     </div><div class="section-title">Travail demandé</div><div class="request">${esc(j.description||"Aucune consigne complémentaire.")}</div></div>
-    ${isCleaningJob(j)?`<div id="cleaningPunchCard" class="pointage-card"><h3>📸 Pointage photo</h3><p class="pointage-hint">Chargement…</p></div>`:
-      !j.copro_id?`<div class="pointage-card"><h3>📸 Pointage photo</h3><p class="pointage-warning">Pour pointer une prestation, l'intervention doit être liée à une copropriété WAPILOT. Cette intervention utilise une adresse libre ou ne comporte pas de copropriété associée.</p></div>`:""}
+    ${requiresPhotoPointage(j)?`<div id="cleaningPunchCard" class="pointage-card"><h3>📸 Pointage photo obligatoire</h3><p class="pointage-hint">Chargement…</p></div>`:""}
     ${state.currentQueuedSubmit?`<div class="card" role="status"><div class="section-title">⏳ Rapport en cours de transmission</div><p class="sub">Votre rapport est conservé sur ce téléphone. Les photos sont transférées automatiquement, puis le rapport sera clôturé sur WAPILOT. Vous pouvez poursuivre vos autres interventions.</p></div>`:open?renderActiveVisit(open,d):otherOpen?`<div class="card"><div class="section-title">Rapport commun</div><div class="report-owner-note">Un collègue affecté à cette intervention a déjà commencé le rapport. Un seul rapport est prévu pour toute l'équipe. Vous pouvez consulter l'intervention mais le rapport en cours reste sous la responsabilité de son rédacteur.</div></div>`:renderVisitAction(j,latest)}
     ${state.currentQueuedSubmit?"":renderDeleteUnsentAction(d)}
     ${d.visits?.length?`<div class="card"><div class="section-title">Historique des passages</div><div class="timeline">${d.visits.map(v=>renderVisitHistory(v)).join("")}</div></div>`:""}
   `;
   if(open&&!state.currentQueuedSubmit){bindCheckChanges();bindReportAutoSave()}
-  if(isCleaningJob(j))loadPunchStatus(j.id).catch(console.warn);
+  if(requiresPhotoPointage(j))loadPunchStatus(j.id).catch(console.warn);
   updatePhotoSyncPanel().catch(console.warn);
   if($("deleteDraftAction"))checkCanDeleteUnsent().catch(console.warn);
 }
@@ -1914,7 +1912,7 @@ function renderActiveVisit(v,d){
   return `<div class="card">
     <div class="section-title"><span>Rapport d’intervention</span><span class="chip">BROUILLON</span></div>
     <div class="draft-note">● Brouillon enregistré : vous pouvez quitter cette page et reprendre le rapport plus tard.</div>
-    ${isCleaningJob(d.job)?`<div class="pointage-warning">📸 Même si ce rapport a été créé avant la mise à jour, les photos « Je commence » et « J'ai terminé » sont obligatoires pour l'envoyer. Les anciennes heures déclarées ne sont pas reprises.</div>`:""}
+    ${requiresPhotoPointage(d.job)?`<div class="pointage-warning">📸 Même si ce rapport a été créé avant la mise à jour, les photos « Je commence » et « J'ai terminé » sont obligatoires pour l'envoyer. Les anciennes heures déclarées ne sont pas reprises.</div>`:""}
     <div class="report-intro">Les heures proviennent des photos de pointage validées par Supabase. Vous pouvez enregistrer et compléter ce rapport avant ou après la prestation.</div>
     <div class="section-title">Photos avant <span class="sub">${before.length} photo(s)</span></div>
     ${photoGrid(before,"before",v.id)}
@@ -1923,17 +1921,10 @@ function renderActiveVisit(v,d){
     ${checks.length?`<div class="section-title">Checklist nettoyage</div><div id="checks">${checks.map(c=>`<label class="check"><input type="checkbox" data-check="${c.id}" ${c.checked?"checked":""}><span>${esc(c.label_snapshot)}</span></label>`).join("")}</div>`:""}
     <div class="section-title" style="margin-top:15px">Photos après <span class="sub">${after.length} photo(s)</span></div>
     ${photoGrid(after,"after",v.id)}
-    ${isCleaningJob(d.job)?`<div class="field" style="margin-top:14px"><label>HEURES CONFIRMÉES PAR PHOTOS</label>
+    <div class="field" style="margin-top:14px"><label>HEURES CONFIRMÉES PAR PHOTOS</label>
       <div class="duration-auto" style="display:block;line-height:1.65" id="reportPunchTimes">${punchReportStatusHtml()}</div>
-      <div class="report-intro">Aucune saisie manuelle : utilisez les boutons « Je commence » et « J'ai terminé » dans cette intervention.</div>
-    </div>`:`<div class="field" style="margin-top:14px"><label>HORAIRES — INTERVENTION À ADRESSE LIBRE</label>
-      <div class="report-intro">Le pointage de façade est réservé aux interventions rattachées à une copropriété. Les horaires de ce type d'intervention restent saisissables en attendant un dispositif adapté.</div>
-      <div class="hours-grid">
-        <div class="field" style="margin:0"><label>HEURE D'ARRIVÉE</label><input id="arrivalTime" type="time" value="${arrival}" oninput="refreshAutoDuration()"></div>
-        <div class="field" style="margin:0"><label>HEURE DE DÉPART</label><input id="departureTime" type="time" value="${departure}" oninput="refreshAutoDuration()"></div>
-      </div>
-      <div class="duration-auto"><span>Temps déclaré (non pointé)</span><b id="autoDuration">${formatAutoDuration(currentMinutes||calcVisitMinutes(arrival,departure))}</b></div>
-    </div>`}
+      <div class="report-intro">Pointage photo d'arrivée et de départ obligatoire pour toute prestation, y compris intervention technique, travaux ou adresse libre. Aucun horaire manuel n'est accepté.</div>
+    </div>
     <div class="field"><label>REMARQUES SUR LE RAPPORT</label><textarea id="remarks" placeholder="Observations concernant le travail effectué…">${esc(v.remarks||"")}</textarea></div>
     <div class="field syndic-note"><label for="syndicRemarks">REMARQUES À COMMUNIQUER AU SYNDIC</label>
       <textarea id="syndicRemarks" maxlength="5000" placeholder="Ex. : ampoule grillée au 2e étage, fuite constatée, porte à vérifier…">${esc(v.syndic_remarks||"")}</textarea>
@@ -2094,17 +2085,15 @@ async function prepareVisit(){
 function visitPayload(){
   const v=currentOpenVisit();
   const date=v?.visit_date||new Date().toISOString().slice(0,10);
-  const photoTimes=isCleaningJob(state.currentDetail?.job)?punchReportTimes():null;
-  const arrival=$("arrivalTime")?.value||"";
-  const departure=$("departureTime")?.value||"";
+  const photoTimes=punchReportTimes();
   return {
     visit_id:v?.id,
     work_done:$("workDone")?.value||"",
     materials_used:$("materials")?.value||"",
     remarks:$("remarks")?.value||"",
     syndic_remarks:$("syndicRemarks")?.value||"",
-    started_at:isCleaningJob(state.currentDetail?.job)?(photoTimes?.started_at||null):visitIsoFromTime(date,arrival),
-    ended_at:isCleaningJob(state.currentDetail?.job)?(photoTimes?.ended_at||null):visitIsoFromTime(date,departure)
+    started_at:photoTimes?.started_at||null,
+    ended_at:photoTimes?.ended_at||null
   }
 }
 async function saveChecks(){await offQueueReport(false)}
@@ -2131,7 +2120,7 @@ async function finishVisit(){
   const button=$("finishVisitButton");
   if(button){button.disabled=true;button.textContent="Vérification du pointage…"}
   try{
-    if(isCleaningJob(state.currentDetail?.job)){
+    if(requiresPhotoPointage(state.currentDetail?.job)){
       if(!navigator.onLine)throw Error("Pour transmettre ce rapport, reconnectez-vous et effectuez les deux photos de pointage. Le brouillon reste enregistrable hors ligne.");
       // Ne pas faire confiance à un état ancien de la PWA ou à un rapport créé avant la mise à jour.
       const live=await punchApi("status",{job_id:jobId});
