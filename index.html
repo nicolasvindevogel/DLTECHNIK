@@ -7,12 +7,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.25</title>
+<title>DL TECHNIK · V3.9.26</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script async src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   --navy:#0f172a;--navy2:#182338;--ink:#172033;--muted:#667085;--line:#e5e9ef;
@@ -370,7 +370,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.25</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.26</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="État de la synchronisation automatique">
@@ -438,7 +438,7 @@ html,body{background:#f6f8f7;color:#17211c}
 const CFG={url:"https://ccboibbhsztcupfcrndx.supabase.co",key:"sb_publishable_Dzt9mbx7jw9qYEEJn7NAdg_zp7DPrJ9",fn:"dl-technik-auth"};
 const API=CFG.url+"/functions/v1/"+CFG.fn;
 const TOKEN_KEY="dl_technik_device_token_v1";
-const storageClient=window.supabase.createClient(CFG.url,CFG.key,{
+let storageClient=window.supabase?.createClient(CFG.url,CFG.key,{
   auth:{persistSession:false,autoRefreshToken:false},
   global:{fetch:(input,init={})=>{
     const controller=new AbortController();
@@ -458,7 +458,12 @@ const $=id=>document.getElementById(id);
 let me=null,users=[],pin="",pinStep="login",pinFirst="",selectedUser=null;
 let state={dashboard:null,jobs:[],done:[],refs:null,current:null,currentDetail:null};
 
-const OFFLINE_DB_NAME="dl_technik_offline_v1",OFFLINE_DB_VERSION=2;
+function ensureStorageClient(){
+ if(!storageClient&&window.supabase?.createClient)storageClient=window.supabase.createClient(CFG.url,CFG.key,{auth:{persistSession:false,autoRefreshToken:false}});
+ if(!storageClient)throw Error("Bibliothèque de synchronisation indisponible. Reconnectez le téléphone puis rouvrez DL TECHNIK.");
+ return storageClient;
+}
+const OFFLINE_DB_NAME="dl_technik_offline_v1",OFFLINE_DB_VERSION=3;
 let offlineSyncRunning=false;
 let manualPhotoNetworkValidated=false;
 let lastPhotoSyncStatus={at:0,stage:"",message:""};
@@ -513,7 +518,10 @@ function offOpen(){
   if(offlineDatabasePromise)return offlineDatabasePromise;
   offlineDatabasePromise=new Promise((resolve,reject)=>{
     const r=indexedDB.open(OFFLINE_DB_NAME,OFFLINE_DB_VERSION);
-    r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("kv"))d.createObjectStore("kv");if(!d.objectStoreNames.contains("reports"))d.createObjectStore("reports",{keyPath:"job_id"});if(!d.objectStoreNames.contains("photos"))d.createObjectStore("photos",{keyPath:"id"});if(!d.objectStoreNames.contains("photo_sync"))d.createObjectStore("photo_sync",{keyPath:"id"});if(!d.objectStoreNames.contains("photo_binary"))d.createObjectStore("photo_binary",{keyPath:"id"})};
+    r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("kv"))d.createObjectStore("kv");if(!d.objectStoreNames.contains("reports"))d.createObjectStore("reports",{keyPath:"job_id"});if(!d.objectStoreNames.contains("photos"))d.createObjectStore("photos",{keyPath:"id"});if(!d.objectStoreNames.contains("photo_sync"))d.createObjectStore("photo_sync",{keyPath:"id"});if(!d.objectStoreNames.contains("photo_binary"))d.createObjectStore("photo_binary",{keyPath:"id"});
+      if(!d.objectStoreNames.contains("offline_jobs"))d.createObjectStore("offline_jobs",{keyPath:"local_id"});
+      if(!d.objectStoreNames.contains("offline_punches"))d.createObjectStore("offline_punches",{keyPath:"request_id"});
+      if(!d.objectStoreNames.contains("offline_punch_binary"))d.createObjectStore("offline_punch_binary",{keyPath:"request_id"})};
     r.onsuccess=()=>{r.result.onversionchange=()=>{r.result.close();offlineDatabasePromise=null};resolve(r.result)};
     r.onerror=()=>{offlineDatabasePromise=null;reject(r.error)};
     r.onblocked=()=>{offlineDatabasePromise=null;reject(new Error("Fermez les autres onglets DL TECHNIK puis réessayez."))};
@@ -563,6 +571,159 @@ function queuedPhotoBlob(rec){
 }
 async function offAll(store){const d=await offOpen();return new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).getAll();r.onsuccess=()=>resolve(r.result||[]);r.onerror=()=>reject(r.error)})}
 async function offCount(store){const d=await offOpen();return new Promise((resolve,reject)=>{const r=d.transaction(store,"readonly").objectStore(store).count();r.onsuccess=()=>resolve(r.result||0);r.onerror=()=>reject(r.error)})}
+/* DL TECHNIK V3.9.26 - interventions et pointages securises hors ligne */
+const OFFLINE_JOB_PREFIX="offline-job-";
+const isOfflineJobId=id=>String(id||"").startsWith(OFFLINE_JOB_PREFIX);
+const ownOffline=r=>!!me&&String(r.technician_id)===String(me.technician_id||me.id);
+function localDateToday(){const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")}
+function offlineJobLabel(payload){
+ const c=(state.refs?.copros||[]).find(c=>String(c.id)===String(payload.copro_id));
+ const external=payload.location_type==="external";
+ return {location_label:external?(payload.external_location_name||payload.external_address_line1):c?.name||"Copropriete en attente de synchronisation",
+ location_address:external?[payload.external_address_line1,payload.external_postal_code,payload.external_city].filter(Boolean).join(" · "):[c?.address,c?.postal_code,c?.city].filter(Boolean).join(" · "),
+ intervention_type_label:(state.refs?.types||[]).find(t=>t.code===payload.intervention_type_code)?.label||payload.intervention_type_code};
+}
+function offlineDetailFor(rec){
+ const p=rec.payload,labels=offlineJobLabel(p);
+ const job={id:rec.local_id,status:"assigned",title:p.title,priority:p.priority,planned_date:p.planned_date,
+   location_type:p.location_type,copro_id:p.copro_id,intervention_type_code:p.intervention_type_code,
+   description:p.description,created_at:rec.created_at_device,offline_local:true,
+   ...labels,assignees:[{technician_id:rec.technician_id,display_name:me?.display_name||"Moi"}]};
+ return {job,current_technician_id:rec.technician_id,visits:[],checks:[],photos:[],can_cancel_from_list:false};
+}
+async function createOfflineLocalJob(payload){
+ if(!me||!localStorage.getItem(TOKEN_KEY)||state.refs?.can_create_jobs!==true)
+   throw Error("Session ou autorisation de creation indisponible. Connectez-vous une premiere fois avec du reseau.");
+ const loc=payload.location_type;
+ if(!String(payload.title||"").trim())throw Error("L'objet de l'intervention est obligatoire.");
+ if(loc==="copro"&&!(state.refs.copros||[]).some(c=>String(c.id)===String(payload.copro_id)))
+   throw Error("Selectionnez une copropriete dans la liste synchronisee.");
+ if(loc==="external"&&(!String(payload.external_address_line1||"").trim()||!String(payload.external_city||"").trim()))
+   throw Error("Adresse et ville obligatoires pour ce lieu.");
+ const local_id=OFFLINE_JOB_PREFIX+crypto.randomUUID();
+ const rec={local_id,request_id:crypto.randomUUID(),technician_id:me.technician_id||me.id,
+   created_at_device:new Date().toISOString(),payload,sync_state:"local",remote_id:null,attempts:0,next_retry_at:0};
+ // Le brouillon et son enregistrement de creation sont durables avant de fermer le formulaire.
+ await offPut("offline_jobs",undefined,rec);
+ try{await offCacheApi("job_detail",{job_id:local_id},offlineDetailFor(rec));}
+ catch(e){/* La fiche est aussi reconstructible depuis offline_jobs. */}
+ return rec;
+}
+async function offlineVisibleJobs(){return (await offAll("offline_jobs")).filter(r=>ownOffline(r)&&!r.remote_id).map(r=>offlineDetailFor(r).job)}
+async function offSavePunch(rec,blob){
+ const bytes=await blob.arrayBuffer();if(bytes.byteLength<3500||bytes.byteLength>1500000)throw Error("Photo de pointage invalide.");
+ const db=await offOpen();await new Promise((resolve,reject)=>{
+  const tx=db.transaction(["offline_punches","offline_punch_binary","kv"],"readwrite");
+  tx.objectStore("offline_punches").put(rec);
+  tx.objectStore("offline_punch_binary").put({request_id:rec.request_id,bytes});
+  const key="punch:active-worker:"+rec.technician_id;
+  if(rec.mode==="start")tx.objectStore("kv").put({job_id:rec.job_id,request_id:rec.request_id},key);
+  else tx.objectStore("kv").delete(key);
+  tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Espace local plein : photo non enregistree."));tx.onerror=()=>reject(tx.error);
+ });
+}
+async function offDeletePunch(id){const db=await offOpen();return new Promise((resolve,reject)=>{
+ const tx=db.transaction(["offline_punches","offline_punch_binary"],"readwrite");
+ tx.objectStore("offline_punches").delete(id);tx.objectStore("offline_punch_binary").delete(id);
+ tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);tx.onerror=()=>reject(tx.error);
+})}
+async function offlinePunchesFor(jobId){return (await offAll("offline_punches"))
+ .filter(r=>ownOffline(r)&&String(r.job_id)===String(jobId))
+ .sort((a,b)=>Date.parse(a.captured_at_device)-Date.parse(b.captured_at_device));}
+async function offlinePunchOverlay(jobId,remote={}){
+ const pending=await offlinePunchesFor(jobId);
+ if(!pending.length)return remote;
+ const sessions=[...(remote.sessions||[])];
+ const queuedStart=pending.find(p=>p.mode==="start"),queuedEnd=pending.find(p=>p.mode==="end");
+ const serverStart=queuedStart&&sessions.find(s=>s.start_request_id===queuedStart.request_id);
+ if(queuedStart&&!serverStart){
+   sessions.unshift({job_id:jobId,started_at:queuedStart.captured_at_device,ended_at:queuedEnd?.captured_at_device||null,
+    start_request_id:queuedStart.request_id,end_request_id:queuedEnd?.request_id||null,
+    start_gps_status:"unavailable",start_photo_path:null,end_photo_path:null,_offline:true});
+ }else if(queuedEnd&&sessions.length){
+   const s=sessions.find(x=>!x.ended_at)||sessions[0];
+   if(s)sessions.splice(sessions.indexOf(s),1,{...s,ended_at:queuedEnd.captured_at_device,end_request_id:queuedEnd.request_id,_offline:true});
+ }
+ const active=queuedEnd?null:(queuedStart? (sessions.find(x=>x.start_request_id===queuedStart.request_id)||null):remote.active||null);
+ return {...remote,ok:false,sessions,active,pending_local:true,pending_end:!!queuedEnd};
+}
+function offlineCheckLocalTime(p){const t=Date.parse(p.captured_at_device);if(!Number.isFinite(t))throw Error("Horodatage local illisible.")}
+async function syncOfflineNewJobs(){
+ const jobs=(await offAll("offline_jobs")).filter(ownOffline).sort((a,b)=>Date.parse(a.created_at_device)-Date.parse(b.created_at_device));
+ for(const job of jobs){
+  if(job.remote_id){await remapOfflineJob(job);continue}
+  if(job.next_retry_at>Date.now())continue;
+  try{
+   const created=await punchApi("create_offline_job",{request_id:job.request_id,job:job.payload,created_at_device:job.created_at_device});
+   if(!created?.job_id)throw Error("Creation non confirmee.");
+   await offPut("offline_jobs",undefined,{...job,remote_id:created.job_id,sync_state:"created_remote"});
+   await remapOfflineJob({...job,remote_id:created.job_id});
+  }catch(e){
+   const attempts=Number(job.attempts||0)+1;
+   await offPut("offline_jobs",undefined,{...job,attempts,sync_state:"error",next_retry_at:Date.now()+syncBackoff(attempts),last_error:String(e.message||e)});
+   setPhotoSyncStatus("intervention hors ligne",String(e.message||e));
+   break; // Ne pas faire partir les pointages d'une intervention non creee.
+  }
+ }
+}
+async function remapOfflineJob(rec){
+ const localId=rec.local_id,remoteId=rec.remote_id;
+ if(!remoteId)return;
+ // Ne jamais rebinder une mission pendant que la camera pointe encore sur l'identifiant local.
+ if(String(punchState.jobId)===localId||(state.current===localId&&(punchStream||cameraStream)))return;
+ await localReportWrites;
+ // Reprise idempotente si l'application a ete fermee au milieu de la migration.
+ const report=await offGet("reports",localId);
+ if(report){
+   await offPut("reports",undefined,{...report,job_id:remoteId,visit_id:null,
+    payload:{...report.payload,visit_id:null},updated_at:Date.now()});
+   await offDelete("reports",localId);
+ }
+ const photos=(await offPhotoMetas()).filter(p=>String(p.job_id)===localId);
+ for(const photo of photos){
+   const status=await offGet("photo_sync",photo.id);
+   await offPut("photos",undefined,{...photo,job_id:remoteId,visit_id:null});
+   if(status)await offPut("photo_sync",undefined,{...status,job_id:remoteId,visit_id:null});
+ }
+ const punches=await offlinePunchesFor(localId);
+ for(const punch of punches)await offPut("offline_punches",undefined,{...punch,job_id:remoteId});
+ const detail=await offReadApi("job_detail",{job_id:localId});
+ if(detail)await offCacheApi("job_detail",{job_id:remoteId},{...detail,job:{...detail.job,id:remoteId,offline_local:false},
+   visits:(detail.visits||[]).map(v=>({...v,job_id:remoteId}))});
+ await offDelete("kv",offCacheKey("job_detail",{job_id:localId}));
+ await offDelete("offline_jobs",localId);
+ state.offlineJobs=(state.offlineJobs||[]).filter(j=>j.id!==localId);
+ if(String(state.current)===localId&&!punchState.busy){state.current=remoteId;jobDetail(remoteId).catch(console.warn)}
+}
+async function syncOfflinePunches(){
+ const punches=(await offAll("offline_punches")).filter(ownOffline)
+  .sort((a,b)=>Date.parse(a.captured_at_device)-Date.parse(b.captured_at_device));
+ for(const rec of punches){
+  if(isOfflineJobId(rec.job_id)||rec.next_retry_at>Date.now())continue;
+  try{
+   offlineCheckLocalTime(rec);
+   const binary=await offGet("offline_punch_binary",rec.request_id);
+   if(!(binary?.bytes instanceof ArrayBuffer))throw Error("Photo de pointage locale introuvable. Ne supprimez pas l'application.");
+   const now=Date.now(),captured=Date.parse(rec.captured_at_device);
+   const useDeviceTime=rec.was_offline||now-captured>60_000;
+   const result=await punchApi("mark",{job_id:rec.job_id,mode:rec.mode,request_id:rec.request_id,
+    photo_base64:await punchImageBase64(new Blob([binary.bytes],{type:"image/jpeg"})),gps:rec.gps,
+    captured_at_device:rec.captured_at_device,device_offset_minutes:rec.device_offset_minutes,
+    use_device_time:!!useDeviceTime});
+   if(!result?.ok)throw Error("Confirmation du pointage absente.");
+   await offDeletePunch(rec.request_id);
+   refreshNetworkBadge().catch(()=>{});
+   delete punchStatusByJob[rec.job_id];
+   setPhotoSyncStatus("pointage confirme",`${rec.mode==="start"?"Arrivee":"Depart"} recu par Supabase${useDeviceTime?" · heure du telephone conservee":""}`);
+   if(String(state.current)===String(rec.job_id)&&!punchState.busy)loadPunchStatus(rec.job_id).catch(console.warn);
+  }catch(e){
+   const attempts=(rec.attempts||0)+1;
+   await offPut("offline_punches",undefined,{...rec,attempts,sync_state:"error",last_error:String(e.message||e),next_retry_at:Date.now()+syncBackoff(attempts)});
+   setPhotoSyncStatus("pointage en attente",String(e.message||e));
+   break; // L'ordre debut > fin est obligatoire ; ne jamais sauter une photo en erreur.
+  }
+ }
+}
 function offCacheKey(action,payload={}){return `api:${action}:${JSON.stringify(payload,Object.keys(payload).sort())}`}
 async function offCacheApi(action,payload,value){try{await offPut("kv",offCacheKey(action,payload),{ts:Date.now(),value})}catch(e){}}
 async function offReadApi(action,payload){try{return (await offGet("kv",offCacheKey(action,payload)))?.value||null}catch{return null}}
@@ -585,11 +746,11 @@ async function offPhotoMetas(){
   const statuses=new Map((await offAll("photo_sync")).map(x=>[String(x.id),x]));
   return rows.map(r=>({...r,...(statuses.get(String(r.id))||{})}));
 }
-async function offPendingCount(){const [r,p]=await Promise.all([offAll("reports"),offPhotoMetas()]);return r.filter(isOwnQueuedItem).length+p.filter(isOwnQueuedItem).length}
+async function offPendingCount(){const [r,p]=await Promise.all([offAll("reports"),offPhotoMetas()]);return r.filter(isOwnQueuedItem).length+p.filter(isOwnQueuedItem).length+(await offAll("offline_jobs")).filter(ownOffline).length+(await offAll("offline_punches")).filter(ownOffline).length}
 async function refreshNetworkBadge(){
   const e=$("network");if(!e)return;
   // count() doesn't read every photo Blob into memory on slow smartphones.
-  const [r,p]=await Promise.all([offCount("reports"),offCount("photos")]);const n=r+p;
+  const [r,p,j,q]=await Promise.all([offCount("reports"),offCount("photos"),offCount("offline_jobs"),offCount("offline_punches")]);const n=r+p+j+q;
   e.classList.remove("syncing","offline","pending");
   if(!navigator.onLine){e.textContent=n?`HORS LIGNE · ${n} EN ATTENTE`:"HORS LIGNE";e.classList.add("offline")}
   else if(offlineSyncRunning){e.textContent=`TRANSFERT… · ${n} EN ATTENTE`;e.classList.add("syncing")}
@@ -602,25 +763,27 @@ async function refreshGlobalSyncToolbar(){
   if(!title||!info||!me)return;
   applySyncToolsVisibility();
   try{
-    const [photos,reports]=await Promise.all([offPhotoMetas(),offAll("reports")]);
+    const [photos,reports,jobs,punches]=await Promise.all([offPhotoMetas(),offAll("reports"),offAll("offline_jobs"),offAll("offline_punches")]);
     const mine=photos.filter(isOwnQueuedItem),queuedReports=reports.filter(isOwnQueuedItem);
+    const waitingJobs=jobs.filter(ownOffline),waitingPunches=punches.filter(ownOffline);
     queuedSubmitIds.clear();
     queuedReports.filter(r=>r.submit).forEach(r=>queuedSubmitIds.add(String(r.job_id)));
     const errors=mine.filter(p=>p.sync_state==="error");
     const lastError=errors.find(p=>p.last_error)?.last_error||queuedReports.find(r=>r.last_error)?.last_error||"";
     if(canUseSyncDiagnostics()){
-      title.textContent=`📷 ${mine.length} photo(s) à synchroniser · ${queuedReports.length} rapport(s)`;
+      title.textContent=`📴 ${waitingJobs.length} mission(s) · ${waitingPunches.length} pointage(s) · ${mine.length} photo(s) · ${queuedReports.length} rapport(s)`;
       info.textContent=lastError?`Dernière erreur : ${String(lastError).slice(0,120)}`:
         lastPhotoSyncStatus.at?`Dernière étape : ${lastPhotoSyncStatus.stage}${lastPhotoSyncStatus.message?" — "+lastPhotoSyncStatus.message:""}`:
         mine.length?"Ouvrez Diagnostic pour examiner la file d'attente.":"Aucune photo de ce profil en attente";
     }else{
       // Messages opérationnels utiles, sans exposer le diagnostic ni les outils manuels.
-      title.textContent=queuedSubmitIds.size?`⏳ ${queuedSubmitIds.size} rapport(s) en cours de transmission`:
+      title.textContent=waitingPunches.length||waitingJobs.length?`📴 ${waitingJobs.length} intervention(s) et ${waitingPunches.length} pointage(s) à transmettre`:
+        queuedSubmitIds.size?`⏳ ${queuedSubmitIds.size} rapport(s) en cours de transmission`:
         mine.length?`📷 ${mine.length} photo(s) en cours de synchronisation`:"✓ Envois à jour";
       info.textContent=!photoNetworkReady()?"Transmission en attente de connexion, reprise automatique à la réouverture.":
         offlineSyncRunning?"Envoi automatique en cours. Vous pouvez continuer vos interventions.":
         lastError?"Des fichiers seront réessayés automatiquement pendant l'utilisation de l'application.":
-        queuedSubmitIds.size||mine.length?"Envoi automatique pendant l'utilisation de l'application, sans attente nécessaire.":
+        queuedSubmitIds.size||mine.length||waitingJobs.length||waitingPunches.length?"Envoi automatique pendant l'utilisation de l'application, sans attente nécessaire.":
         "Aucun transfert en attente.";
     }
   }catch(error){info.textContent="Lecture de la file locale impossible : "+String(error?.message||error).slice(0,150)}
@@ -1132,7 +1295,7 @@ async function syncOneQueuedPhoto(p,visitId){
     }
     const uploadBody=file;
     stage="transfert Storage";
-    const up=await storageClient.storage.from("technik-interventions")
+    const up=await ensureStorageClient().storage.from("technik-interventions")
       .uploadToSignedUrl(current.storage_path,current.signed_token,uploadBody,{contentType:mime,cacheControl:"3600"});
     // Après une réponse perdue, le chemin reste identique ; 409 signifie déjà chargé.
     if(up.error&&!/already exists|duplicate|conflict|409/i.test(String(up.error.message||up.error))){
@@ -1250,6 +1413,8 @@ async function syncOfflineQueue(){
   setPhotoSyncStatus("file", "Analyse des rapports et photos en attente");
   await refreshNetworkBadge().catch(()=>{});
   try{
+    await syncOfflineNewJobs();
+    await syncOfflinePunches();
     const reports=(await offAll("reports")).filter(isOwnQueuedItem);
     for(const r of reports)await syncOneQueuedReport(r);
     const remaining=(await offPhotoMetas()).filter(isOwnQueuedItem);
@@ -1340,6 +1505,7 @@ function punchTimesFromServerStatus(status){
  // Les anciens rapports, même en attente depuis plusieurs jours, ne peuvent
  // pas inventer des horaires. Une session inachevée interdit la clôture.
  if(status?.ok!==true||!Array.isArray(status.sessions)||!status.sessions.length)return null;
+ if(status?.pending_local)return null;
  const sessions=status.sessions;
  if(sessions.some(s=>!s.started_at||!s.ended_at||!s.start_photo_path||!s.end_photo_path))return null;
  const completed=[...sessions].sort((a,b)=>new Date(a.started_at)-new Date(b.started_at));
@@ -1354,7 +1520,9 @@ function punchReportTimes(jobId=state.current){
 }
 function punchReportStatusHtml(){
  const sessions=punchSessions();const t=punchReportTimes();
- if(t)return `<strong>${punchFmtDate(t.started_at)} → ${punchFmtDate(t.ended_at)}</strong> · ${formatAutoDuration(t.minutes)}<br><small>${t.count} pointage(s) photo confirmé(s) par Supabase</small>`;
+ if(t)return `<strong>${punchFmtDate(t.started_at)} → ${punchFmtDate(t.ended_at)}</strong> · ${formatAutoDuration(t.minutes)}<br><small>${t.count} pointage(s) photo reçu(s) par Supabase${sessions.some(s=>s.start_time_source==="telephone_hors_ligne"||s.end_time_source==="telephone_hors_ligne")?" · horaires du téléphone (hors ligne), audit conservé":""}</small>`;
+ if(punchStatusByJob[state.current]?.pending_end)return `📴 Photos d'arrivée et de départ enregistrées sur le téléphone, en attente de synchronisation.`;
+ if(punchStatusByJob[state.current]?.pending_local)return `📴 Photo d'arrivée sur le téléphone. Pensez à prendre la photo de départ.`;
  if(sessions.some(s=>!s.ended_at))return `Photo d'arrivée confirmée. La photo de départ reste à effectuer.`;
  return `En attente des deux photos de pointage. Vous pouvez préparer ou compléter ce rapport à tout moment.`;
 }
@@ -1375,11 +1543,14 @@ function punchHtml(status,job){
     <p class="pointage-hint">Prenez une photo du lieu de travail à l’arrivée et une autre au départ avec les boutons de cette prestation. Les horaires sont enregistrés automatiquement. Le rapport peut être préparé ou complété à un autre moment.</p>
     ${view}
     ${gpsWarning?`<div class="pointage-warning">⚠ Pointage enregistré, contrôle de présence à vérifier par le responsable.</div>`:""}
+    ${sessions.some(s=>s.start_time_source==="telephone_hors_ligne"||s.end_time_source==="telephone_hors_ligne")?`<div class="pointage-warning">📱 Horaire du téléphone utilisé pendant la coupure réseau. L'heure de réception du serveur est conservée pour contrôle.</div>`:""}
     ${!known?`<div class="pointage-warning">Contrôle de présence à confirmer par le responsable.</div>`:""}
-    ${!navigator.onLine?`<div class="pointage-warning">Connexion absente : pas de pointage hors ligne. Le rapport reste utilisable.</div>`:""}
+    ${status?.pending_local?`<div class="pointage-warning"><b>📴 Pointage photo enregistré sur ce téléphone.</b> Heure du mobile : en attente de reception par Supabase. ${status.pending_end?"Départ capturé, aucune autre photo nécessaire.":"Pensez à prendre la photo de départ."}</div>`:""}
+    ${!navigator.onLine?`<div class="pointage-warning">Réseau absent : la photo et l'heure du téléphone sont conservées localement jusqu'à synchronisation.</div>`:""}
     <div class="pointage-actions">
-    ${active?`<button class="primary" ${!navigator.onLine?"disabled":""} onclick="openPunchCamera('end')">📷 J'ai terminé</button>`:
-      !["report_received","validated","archived","cancelled"].includes(job.status)?`<button class="primary" ${!navigator.onLine?"disabled":""} onclick="openPunchCamera('start')">📷 Je commence</button>`:""}
+    ${status?.pending_end?`<button class="light" disabled>📴 Départ en attente de synchronisation</button>`:
+      active?`<button class="primary" onclick="openPunchCamera('end')">📷 J'ai terminé</button>`:
+      !["report_received","validated","archived","cancelled"].includes(job.status)?`<button class="primary" onclick="openPunchCamera('start')">📷 Je commence</button>`:""}
     <button class="light" onclick="loadPunchStatus('${esc(job.id)}')">↻ Actualiser</button>
     </div>
     <p class="pointage-hint">Les horaires ne se saisissent plus manuellement dans le rapport. <button type="button" class="light" onclick="openPointageNotice(true)">ℹ️ Comment pointer ?</button></p>`;
@@ -1398,21 +1569,25 @@ async function punchApi(action,payload={}){
 async function loadPunchStatus(jobId){
  const card=$("cleaningPunchCard");if(!card||!requiresPhotoPointage(state.currentDetail?.job)||String(state.current)!==String(jobId))return;
  const cacheKey={job_id:jobId,technician_id:currentTechnicianId()};
- if(!punchStatusByJob[jobId]){const cached=await offReadApi("punch_status",cacheKey).catch(()=>null);if(cached)punchStatusByJob[jobId]=cached;}
- if(!navigator.onLine){card.innerHTML=punchHtml(punchStatusByJob[jobId]||{},state.currentDetail.job);refreshPunchReportDisplay();return;}
- if(!punchStatusByJob[jobId])card.innerHTML='<h3>📸 Pointage photo</h3><p class="pointage-hint">Chargement des pointages…</p>';
- try{
-  const data=await punchApi("status",{job_id:jobId});
-  punchStatusByJob[jobId]=data;
-  offCacheApi("punch_status",cacheKey,data).catch(console.warn);
-  if(String(state.current)===String(jobId)&&$("cleaningPunchCard"))$("cleaningPunchCard").innerHTML=punchHtml(data,state.currentDetail.job);
-  refreshPunchReportDisplay();
- }catch(e){if($("cleaningPunchCard")&&String(state.current)===String(jobId))$("cleaningPunchCard").innerHTML=`<h3>📸 Pointage photo</h3><p class="pointage-warning">${esc(e.message)}</p><button class="light" onclick="loadPunchStatus('${esc(jobId)}')">Réessayer</button>`;}
+ let base=await offReadApi("punch_status",cacheKey).catch(()=>null);
+ if(navigator.onLine&&!isOfflineJobId(jobId)){
+   try{
+     const live=await punchApi("status",{job_id:jobId});base=live;
+     await offCacheApi("punch_status",cacheKey,live);
+   }catch(e){if(!base)base={ok:false,sessions:[],_status_error:String(e.message||e)};}
+ }
+ const merged=await offlinePunchOverlay(jobId,base||{ok:false,sessions:[]});
+ punchStatusByJob[jobId]=merged;
+ if(String(state.current)===String(jobId)&&$("cleaningPunchCard")){
+   $("cleaningPunchCard").innerHTML=punchHtml(merged,state.currentDetail.job);
+   if(base?._status_error)$("cleaningPunchCard").insertAdjacentHTML("beforeend",`<p class="pointage-warning">${esc(base._status_error)}</p>`);
+ }
+ refreshPunchReportDisplay();
 }
+
 function stopPunchCamera(){if(punchStream){punchStream.getTracks().forEach(track=>track.stop());punchStream=null;}}
 function closePunchCamera(){if(punchState.busy)return;stopPunchCamera();$("modalRoot").innerHTML="";punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};}
 async function openPunchCamera(mode){
- if(!navigator.onLine)return alert("Une connexion Internet est indispensable pour enregistrer une heure serveur fiable.");
  if(!requiresPhotoPointage(state.currentDetail?.job)||!state.current)return;
  if(punchState.busy||punchStream)return;
  if(!navigator.mediaDevices?.getUserMedia)return alert("Cette caméra n'est pas disponible. Demandez au responsable une procédure d'exception. La galerie n'est pas acceptée pour le pointage.");
@@ -1480,6 +1655,8 @@ async function capturePunch(){
   const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(video.videoWidth*scale));canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
   const ctx=canvas.getContext("2d",{alpha:false});if(!ctx)throw Error("Capture indisponible.");
   ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  const capturedAtDevice=new Date().toISOString(); // Heure de prise, AVANT GPS/encodage.
+  const deviceOffsetMinutes=new Date().getTimezoneOffset();
   video.pause(); // Gel immédiat de l'image ; l'ouvrier sait que le cliché est pris.
   // Récupérer GPS en parallèle de l'encodage JPEG réduit l'attente après la photo.
   const gpsPromise=punchGpsForCapture();
@@ -1487,34 +1664,41 @@ async function capturePunch(){
   const [gps,blob]=await Promise.all([gpsPromise,blobPromise]);
   if(!blob||blob.size<3500||blob.size>1300000)throw Error("Photo trop petite ou trop volumineuse. Reprenez la photo.");
   if(statusEl)statusEl.textContent="📸 Photo prise · enregistrement sécurisé…";
-  const result=await punchApi("mark",{job_id:jobId,mode,request_id:reqId,photo_base64:await punchImageBase64(blob),gps});
-  console.info("[DL TECHNIK] Pointage photo confirmé après",Math.round(performance.now()-startedPerformance),"ms (caméra/GPS/envoi/serveur) — aucune coordonnée journalisée.");
+  // Conserver la preuve AVANT toute tentative reseau. Aucune confirmation serveur inventee.
+  if(mode==="start"){
+    const active=await offGet("kv","punch:active-worker:"+currentTechnicianId());
+    if(active&&String(active.job_id)!==String(jobId))throw Error("Une autre prestation a déjà été commencée sur ce téléphone. Terminez-la d'abord.");
+    if(Object.values(punchStatusByJob).some(st=>st?.active&&st.active.technician_id===currentTechnicianId()&&String(st.active.job_id)!==String(jobId)))
+      throw Error("Un autre pointage est encore ouvert.");
+  }
+  const rec={request_id:reqId,job_id:jobId,technician_id:currentTechnicianId(),mode,
+    captured_at_device:capturedAtDevice,device_offset_minutes:deviceOffsetMinutes,
+    was_offline:!navigator.onLine||isOfflineJobId(jobId)||weakNetwork(),gps:gps||null,
+    attempts:0,next_retry_at:0,sync_state:"local"};
+  await offSavePunch(rec,blob);
+  refreshNetworkBadge().catch(()=>{});
+  console.info("[DL TECHNIK] Photo de pointage conservée localement après",Math.round(performance.now()-startedPerformance),"ms.");
   punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";
   punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};
-  // Aucune confirmation anticipée : le serveur a effectivement accepté le pointage.
-  toast(mode==="start"?"✅ Arrivée confirmée":"✅ Départ confirmé");
-  const card=$("cleaningPunchCard");
-  if(card&&String(state.current)===String(jobId))card.innerHTML='<h3>📸 Pointage photo</h3><p class="pointage-hint">✅ Pointage confirmé. Actualisation du rapport…</p>';
-  // Relecture du statut non bloquante. Le serveur est déjà la source de vérité.
-  loadPunchStatus(jobId).catch(console.warn);
-  // Le contrôle éventuel de localisation reste visible par les responsables, pas dans les détails du pointage ouvrier.
+  toast(mode==="start"?"📴 Arrivée enregistrée sur le téléphone":"📴 Départ enregistré sur le téléphone");
+  await loadPunchStatus(jobId).catch(console.warn);
+  if(navigator.onLine)scheduleBackgroundPhotoSync(100);
+
  }catch(e){
-  // Une coupure après réception par Supabase peut laisser un pointage déjà validé.
-  if(statusEl)statusEl.textContent="Confirmation non reçue. Vérification du pointage…";
-  if(err)err.textContent=/(GPS|géolocalisation|localisation|position|coordonn)/i.test(String(e.message||e))?
-      "La confirmation de présence a échoué. Vérifiez les autorisations de l'application ou contactez votre responsable.":
-      (e.message||String(e))+". Vérifiez le statut avant une nouvelle tentative.";
-  try{const existing=await punchApi("status",{job_id:jobId});punchStatusByJob[jobId]=existing;
-    const found=(existing.sessions||[]).some(s=>s.start_request_id===reqId||s.end_request_id===reqId);
-    if(found){punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";
-      punchState={busy:false,mode:null,jobId:null,requestId:null,gpsPromise:null,gpsFix:null,gpsError:null};
-      loadPunchStatus(jobId).catch(console.warn);alert("Pointage déjà confirmé par le serveur.");return;}
-  }catch(_){}
-  // Conserver le même identifiant si l'ouvrier réessaie : aucune création en double.
+  const saved=await offGet("offline_punches",reqId).catch(()=>null);
+  if(saved){
+    punchState.busy=false;stopPunchCamera();$("modalRoot").innerHTML="";
+    toast("📴 Photo conservée sur le téléphone · en attente d'envoi");
+    loadPunchStatus(jobId).catch(console.warn);
+    if(navigator.onLine)scheduleBackgroundPhotoSync(1000);
+    return;
+  }
+  if(err)err.textContent="Photo non enregistrée : "+String(e.message||e)+". Reprenez la photo.";
+  if(statusEl)statusEl.textContent="";
   punchState.busy=false;
   if(video&&punchStream)video.play().catch(()=>{});
-  if(statusEl)statusEl.textContent="";
-  if(btn){btn.disabled=false;btn.textContent="📸 Réessayer avec une nouvelle photo";}
+  if(btn){btn.disabled=false;btn.textContent="📸 Réessayer avec une nouvelle photo"}
+
  }
 }
 /* ---------------- FIN POINTAGE NETTOYAGE ---------------- */
@@ -1545,7 +1729,7 @@ function openPointageNotice(force=false){
   <h3>3. Et pour les rapports d'intervention ?</h3>
   <p><strong>Rien ne change dans votre manière de compléter les rapports !</strong> Vous pouvez les créer plusieurs jours à l'avance, les compléter progressivement, et terminer la rédaction plus tard, même après avoir quitté la résidence. <strong>Le pointage et le rapport sont indépendants.</strong> Les deux pointages photo doivent être réalisés sur place pour chaque type de travail et chaque intervention, même à une adresse libre.</p>
   <h3>4. Informations importantes</h3>
-  <ul><li>Les photos de pointage se prennent <strong>uniquement avec les nouveaux boutons dans la prestation</strong>.</li><li>Les photos « Avant » et « Après » du rapport ne remplacent pas les photos de pointage.</li><li>Une photo provenant de la galerie du téléphone ne peut pas servir au pointage.</li><li>Le téléphone peut fournir <strong>une localisation ponctuelle au moment des deux pointages</strong> pour vérifier la proximité avec le lieu, lorsque les coordonnées sont disponibles. Si l’accès GPS est refusé, les photos restent obligatoires et la localisation est notée non vérifiée. <strong>Aucun suivi GPS permanent n'est effectué.</strong></li><li>Les heures sont enregistrées automatiquement ; vous n'avez plus à les saisir pour toutes les interventions.</li><li>En cas de problème technique, contactez votre responsable.</li></ul>
+  <ul><li>Les photos de pointage se prennent <strong>uniquement avec les nouveaux boutons dans la prestation</strong>.</li><li>Les photos « Avant » et « Après » du rapport ne remplacent pas les photos de pointage.</li><li>Une photo provenant de la galerie du téléphone ne peut pas servir au pointage.</li><li>Le téléphone peut fournir <strong>une localisation ponctuelle au moment des deux pointages</strong> pour vérifier la proximité avec le lieu, lorsque les coordonnées sont disponibles. Si l’accès GPS est refusé, les photos restent obligatoires et la localisation est notée non vérifiée. <strong>Aucun suivi GPS permanent n'est effectué.</strong></li><li>Les heures sont enregistrées automatiquement. Hors ligne, la date et l'heure du téléphone sont mémorisées avec la photo, puis la réception serveur est enregistrée pour vérification. Aucun horaire n'est saisissable manuellement.</li><li>En cas de problème technique, contactez votre responsable.</li></ul>
   <p><strong>Pensez à effectuer les deux photos de pointage à chaque prestation.</strong> Les données de pointage sont réservées aux responsables autorisés pour le suivi des prestations.</p>
   <button type="button" class="primary pointage-notice-ack" onclick="acknowledgePointageNotice()">J'ai compris</button>
   <small>Ce bouton confirme la lecture de l'information, il ne constitue pas un consentement au traitement.</small>
@@ -1628,7 +1812,10 @@ async function pinSubmit(){
     if(input){input.disabled=false;input.value="";input.focus()}
   }
 }
-function showApp(){$("authRoot").classList.add("hidden");$("appRoot").classList.remove("hidden");applySyncToolsVisibility();setNetwork();refreshGlobalSyncToolbar().catch(()=>{});schedulePointageNotice()}
+function showApp(){$("authRoot").classList.add("hidden");$("appRoot").classList.remove("hidden");applySyncToolsVisibility();setNetwork();refreshGlobalSyncToolbar().catch(()=>{});schedulePointageNotice();
+  // Précharger une fois la liste des copropriétés et types pour créer hors ligne.
+  if(navigator.onLine)api("reference_data",{}, {skipOffline:true,timeoutMs:15000}).then(r=>{state.refs=r}).catch(()=>{});
+}
 async function logout(){
   try{await api("logout")}catch(e){}
   localStorage.removeItem(TOKEN_KEY);me=null;queuedSubmitIds.clear();punchStatusByJob={};applySyncToolsVisibility();state={dashboard:null,jobs:[],done:[],refs:null,current:null,currentDetail:null};await showAuth();
@@ -1649,6 +1836,7 @@ function setHead(title,sub){$("headline").innerHTML=`<h1>${esc(title)}</h1><p>${
 /* ---------------- HOME ---------------- */
 async function home(){
   setHead("Bonjour "+String(me?.display_name||"").split(" ")[0],"Voici vos interventions DL TECHNIK");
+  state.offlineJobs=await offlineVisibleJobs();
   const cached=await offReadApi("dashboard",{});
   if(activeTechnikView!=="home")return;
   if(cached)renderHomeData(cached,true);else $("content").innerHTML=loading();
@@ -1656,12 +1844,13 @@ async function home(){
   catch(e){if(!cached&&activeTechnikView==="home")$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
 function renderHomeData(d,fromCache=false){
-  const first=[...(d.in_progress||[]),...(d.assigned||[])][0];
+  const first=[...(state.offlineJobs||[]),...(d.in_progress||[]),...(d.assigned||[])][0];
   $("content").innerHTML=`
     ${queuedSubmitIds.size?`<div class="sync-card" role="status"><strong>✓ Rapport enregistré sur ce téléphone.</strong> ${queuedSubmitIds.size} rapport(s) en cours d'envoi automatique avec leurs photos. Vous pouvez commencer l'intervention suivante. Gardez DL TECHNIK ouvert pour poursuivre les transferts sur iPhone.</div>`:''}
     ${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Les données affichées proviennent de la dernière synchronisation.</div>`:""}
     ${fromCache&&navigator.onLine?`<div class="sync-card">Affichage instantané des dernières données. <strong>Actualisation en arrière-plan…</strong></div>`:""}
     ${first?`<div class="card hero-card"><div class="section-title"><span>${d.in_progress?.length?"Intervention en cours":"Prochaine intervention"}</span><span class="chip ${statusClass(first.status)}">${statusLabel(first.status)}</span></div>${jobCard(first,true)}</div>`:""}
+    ${(state.offlineJobs||[]).length?`<div class="sync-card"><strong>📴 ${(state.offlineJobs||[]).length} intervention(s) créée(s) sur ce téléphone.</strong> Elles seront transmises dès que le réseau revient. Ne désinstallez pas l'application.</div>`:""}
     <div class="card"><div class="section-title">Aujourd'hui</div><div class="kpis"><div class="kpi"><b>${d.assigned?.length||0}</b><span>À FAIRE</span></div><div class="kpi"><b>${d.in_progress?.length||0}</b><span>EN COURS</span></div><div class="kpi"><b>${d.completed?.length||0}</b><span>TERMINÉES</span></div></div></div>
     <div class="card"><div class="section-title">Accès rapide</div>
       <button class="big-action" onclick="go('jobs')"><span class="ico">🛠️</span><span><b>Mes interventions</b><small>Rapports à compléter pour les travaux attribués</small></span><span class="chev">›</span></button>
@@ -1681,7 +1870,7 @@ function jobCard(j,compact=false){
   const del=canShowDelete&&!queuedSubmitIds.has(String(j.id))?`<div class="job-actions"><button type="button" class="job-list-delete"
     ${navigator.onLine?"":"disabled title=\"Connexion requise pour supprimer\""}
     onclick="event.stopPropagation();deleteUnsentFromList('${esc(j.id)}',this)">🗑 Supprimer</button></div>`:"";
-  return `<div class="job" onclick="go('detail','${esc(j.id)}')"><div class="job-top"><div class="job-main"><div class="job-title">${esc(j.title||"Intervention")}</div><div class="job-place">${esc(j.location_label||"Lieu non renseigné")}${j.location_address?" · "+esc(j.location_address):""}</div></div><div class="job-date">${fmtDate(j.planned_date||j.created_at)}</div></div><div class="job-meta">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${queuedSubmitIds.has(String(j.id))?"Envoi en cours":statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||j.intervention_type_code||"")}</span>${requiresPhotoPointage(j)?`<span class="chip" style="background:#e4f7eb;border-color:#abd9bb;color:#125b33">📷 Pointage photo dans la fiche</span>`:""}${!compact?`<span class="chip">⏱ ${fmtMinutes(j.total_minutes)}</span><span class="chip">📷 ${Number(j.photo_count||0)}</span>`:""}</div>${del}</div>`;
+  return `<div class="job" onclick="go('detail','${esc(j.id)}')"><div class="job-top"><div class="job-main"><div class="job-title">${esc(j.title||"Intervention")}</div><div class="job-place">${esc(j.location_label||"Lieu non renseigné")}${j.location_address?" · "+esc(j.location_address):""}</div></div><div class="job-date">${fmtDate(j.planned_date||j.created_at)}</div></div><div class="job-meta">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${j.offline_local?"📴 Local · en attente":queuedSubmitIds.has(String(j.id))?"Envoi en cours":statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||j.intervention_type_code||"")}</span>${requiresPhotoPointage(j)?`<span class="chip" style="background:#e4f7eb;border-color:#abd9bb;color:#125b33">📷 Pointage photo dans la fiche</span>`:""}${!compact?`<span class="chip">⏱ ${fmtMinutes(j.total_minutes)}</span><span class="chip">📷 ${Number(j.photo_count||0)}</span>`:""}</div>${del}</div>`;
 }
 
 /* ---------------- LISTS ---------------- */
@@ -1690,11 +1879,13 @@ async function jobs(done){
   const payload={mode:done?"completed":"active"},cached=await offReadApi("list_jobs",payload);
   const view=done?"done":"jobs";
   if(activeTechnikView!==view)return;
-  if(cached)renderJobsData(cached.jobs||[],done,true);else $("content").innerHTML=loading();
+  state.offlineJobs=await offlineVisibleJobs();
+  if(cached||(!done&&state.offlineJobs.length))renderJobsData(cached?.jobs||[],done,true);else $("content").innerHTML=loading();
   try{const r=await api("list_jobs",payload,navigator.onLine?{skipOffline:true}:{});if(done)state.done=r.jobs||[];else state.jobs=r.jobs||[];if(activeTechnikView===view)renderJobsData(r.jobs||[],done,false)}
   catch(e){if(!cached&&activeTechnikView===view)$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
 function renderJobsData(arr,done,fromCache=false){
+  if(!done)arr=[...(state.offlineJobs||[]),...arr];
   $("content").innerHTML=`${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Liste issue de la dernière synchronisation.</div>`:""}${fromCache&&navigator.onLine?`<div class="sync-card">Dernière liste affichée immédiatement. <strong>Actualisation…</strong></div>`:""}${arr.length?`<div>${arr.map(j=>jobCard(j)).join("")}</div>`:`<div class="card empty"><div class="ico">${done?"✓":"🛠️"}</div>${done?"Aucune intervention terminée.":"Aucune intervention à traiter."}</div>`}`
 }
 
@@ -1706,7 +1897,7 @@ async function newJob(){
   try{
     const r=await ensureRefs();
     if(!r.can_create_jobs){$("content").innerHTML='<div class="card empty">Votre profil ne permet pas de créer de nouvelles interventions.</div>';return}
-    // V3.9.25 : prioriser le type le plus utilisé uniquement dans le formulaire de création.
+    // V3.9.26 : prioriser le type le plus utilisé uniquement dans le formulaire de création.
     // Les codes, la liste reçue de l'API et l'ordre des autres types restent inchangés.
     const types=[...(r.types||[])];
     const regularIndex=types.findIndex(t=>String(t.label||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase()==="nettoyage regulier");
@@ -1726,6 +1917,8 @@ async function newJob(){
         <div class="team-picker">${(r.technicians||[]).filter(u=>String(u.id)!==String(r.current_technician_id)).map(u=>`<label class="team-choice"><input type="checkbox" class="new-team-tech" value="${esc(u.id)}"><span><b>${esc(u.display_name)}</b>${u.trade?`<small>${esc(u.trade)}</small>`:""}</span></label>`).join("")||'<div class="sub">Aucun autre technicien actif.</div>'}</div>
       </div>
       <button id="createBtn" class="primary" style="width:100%" onclick="createJob()">Créer l'intervention</button>
+      <button class="light" style="width:100%;margin-top:8px" onclick="createJob(true)">📴 Créer sur ce téléphone (réseau faible)</button>
+      <div class="sub" style="margin-top:7px">En mode hors ligne, le chantier et les pointages sont d'abord enregistrés sur ce téléphone, puis envoyés automatiquement dès le retour du réseau.</div>
     </div>`;
   }catch(e){$("content").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
 }
@@ -1736,25 +1929,43 @@ function searchCopro(){
   box.innerHTML=arr.map(c=>`<div class="result" onclick="selectCopro('${c.id}')"><b>${esc(c.name)}</b><span>${esc([c.address,c.postal_code,c.city].filter(Boolean).join(" "))}</span></div>`).join("")||'<div class="result">Aucun résultat</div>';box.classList.remove("hidden");
 }
 function selectCopro(id){const c=state.refs.copros.find(x=>x.id===id);if(!c)return;$("coproId").value=id;$("coproSearch").value=c.name;$("coproSelected").textContent=[c.address,c.postal_code,c.city].filter(Boolean).join(" ");$("coproResults").classList.add("hidden")}
-async function createJob(){
-  const btn=$("createBtn");btn.disabled=true;
-  if(!navigator.onLine){alert("La création d’une toute nouvelle intervention nécessite actuellement une connexion. Les interventions déjà synchronisées restent utilisables hors ligne.");btn.disabled=false;return}
+async function createJob(forceOffline=false){
+  const btn=$("createBtn");if(btn)btn.disabled=true;
   try{
     const loc=$("locationType").value;
     const additional=[...document.querySelectorAll(".new-team-tech:checked")].map(x=>x.value);
-    const r=await api("create_job",{location_type:loc,copro_id:$("coproId").value,external_location_name:$("extName")?.value,external_address_line1:$("extAddress")?.value,external_postal_code:$("extPostal")?.value,external_city:$("extCity")?.value,intervention_type_code:$("newType").value,priority:$("newPriority").value,title:$("newTitle").value,description:$("newDesc").value,planned_date:$("newDate").value,additional_technician_ids:additional});
+    const payload={location_type:loc,copro_id:$("coproId").value,
+      external_location_name:$("extName")?.value,external_address_line1:$("extAddress")?.value,
+      external_postal_code:$("extPostal")?.value,external_city:$("extCity")?.value,
+      intervention_type_code:$("newType").value,priority:$("newPriority").value,
+      title:$("newTitle").value,description:$("newDesc").value,
+      planned_date:$("newDate").value,additional_technician_ids:additional};
+    if(forceOffline||!navigator.onLine){
+      const rec=await createOfflineLocalJob(payload);
+      toast("📴 Intervention enregistrée sur ce téléphone");
+      await go("detail",rec.local_id);
+      if(navigator.onLine)scheduleBackgroundPhotoSync(700);
+      return;
+    }
+    const r=await api("create_job",payload);
     toast("Intervention créée");
-    const prep=await api("prepare_visit",{job_id:r.job_id});
-    // Evite qu'un ancien cache ou une réponse sans can_edit classe ce brouillon comme celui d'un collègue.
+    await api("prepare_visit",{job_id:r.job_id});
     try{await offDelete("kv",offCacheKey("job_detail",{job_id:r.job_id}))}catch(_){}
     await go("detail",r.job_id);
-  }catch(e){alert(e.message)}finally{if(btn)btn.disabled=false}
+  }catch(e){alert(e.message)}finally{if(btn?.isConnected)btn.disabled=false}
 }
 
 /* ---------------- DETAIL / VISIT ---------------- */
 async function jobDetail(id){
   activeTechnikView="detail";
   setHead("Intervention","Chargement du rapport terrain…");state.current=id;
+  if(isOfflineJobId(id)){
+    const rec=await offGet("offline_jobs",id);
+    if(!rec||!ownOffline(rec)){$("content").innerHTML='<div class="empty">Intervention locale introuvable sur ce téléphone.</div>';return}
+    const cached=await offReadApi("job_detail",{job_id:id});
+    state.currentDetail=cached||offlineDetailFor(rec);
+    renderDetail();return;
+  }
   const localQueued=await offGet("reports",id).catch(()=>null);
   state.currentQueuedSubmit=!!(localQueued?.submit&&isOwnQueuedItem(localQueued));
   const payload={job_id:id},cached=await offReadApi("job_detail",payload);
@@ -1800,16 +2011,16 @@ function renderDetail(){
   setHead(j.title,j.location_label||"Intervention DL TECHNIK");
   const team=(j.assignees||[]).map(a=>a.display_name).filter(Boolean);
   $("content").innerHTML=`
-    ${!navigator.onLine?`<div class="offline-banner"><b>Mode hors ligne.</b> Vous pouvez compléter le rapport et ajouter des photos. Tout sera synchronisé au retour du réseau.</div>`:""}
+    ${!navigator.onLine||isOfflineJobId(j.id)?`<div class="offline-banner"><b>📴 Enregistrement local.</b> Création, photos et horaires sont conservés sur cet appareil. Supabase confirmera la réception dès le retour du réseau. Ne supprimez pas l'application.</div>`:""}
     <div id="photoSyncPanel" class="photo-sync-panel" role="status" aria-live="polite"></div>
     <button class="back" onclick="go('jobs')">← Retour aux interventions</button>
     <div class="card"><div class="detail-head"><div class="job-meta" style="margin-top:0">${priorityChip(j.priority)}<span class="chip ${statusClass(j.status)}">${statusLabel(j.status)}</span><span class="chip">${esc(j.intervention_type_label||"")}</span></div><h2>${esc(j.title)}</h2><div class="detail-place">📍 ${esc(j.location_label||"")}${j.location_address?" · "+esc(j.location_address):""}</div>
       ${team.length?`<div class="team-summary">${team.map(n=>`<span class="team-chip">👤 ${esc(n)}</span>`).join("")}</div>`:""}
-      ${!["report_received","validated","archived","cancelled"].includes(j.status)?`<div class="team-actions"><span class="sub">Équipe affectée à cette intervention</span><button class="light" onclick="openAddTechnicianModal()">＋ Ajouter un technicien</button></div>`:""}
+      ${!j.offline_local&&!["report_received","validated","archived","cancelled"].includes(j.status)?`<div class="team-actions"><span class="sub">Équipe affectée à cette intervention</span><button class="light" onclick="openAddTechnicianModal()">＋ Ajouter un technicien</button></div>`:""}
     </div><div class="section-title">Travail demandé</div><div class="request">${esc(j.description||"Aucune consigne complémentaire.")}</div></div>
     ${requiresPhotoPointage(j)?`<div id="cleaningPunchCard" class="pointage-card"><h3>📸 Pointage photo obligatoire</h3><p class="pointage-hint">Chargement…</p></div>`:""}
     ${state.currentQueuedSubmit?`<div class="card" role="status"><div class="section-title">⏳ Rapport en cours de transmission</div><p class="sub">Votre rapport est conservé sur ce téléphone. Les photos sont transférées automatiquement, puis le rapport sera clôturé sur WAPILOT. Vous pouvez poursuivre vos autres interventions.</p></div>`:open?renderActiveVisit(open,d):otherOpen?`<div class="card"><div class="section-title">Rapport commun</div><div class="report-owner-note">Un collègue affecté à cette intervention a déjà commencé le rapport. Un seul rapport est prévu pour toute l'équipe. Vous pouvez consulter l'intervention mais le rapport en cours reste sous la responsabilité de son rédacteur.</div></div>`:renderVisitAction(j,latest)}
-    ${state.currentQueuedSubmit?"":renderDeleteUnsentAction(d)}
+    ${state.currentQueuedSubmit||j.offline_local?"":renderDeleteUnsentAction(d)}
     ${d.visits?.length?`<div class="card"><div class="section-title">Historique des passages</div><div class="timeline">${d.visits.map(v=>renderVisitHistory(v)).join("")}</div></div>`:""}
   `;
   if(open&&!state.currentQueuedSubmit){bindCheckChanges();bindReportAutoSave()}
@@ -2126,7 +2337,7 @@ async function finishVisit(){
   if(button){button.disabled=true;button.textContent="Vérification du pointage…"}
   try{
     if(requiresPhotoPointage(state.currentDetail?.job)){
-      if(!navigator.onLine)throw Error("Pour transmettre ce rapport, reconnectez-vous et effectuez les deux photos de pointage. Le brouillon reste enregistrable hors ligne.");
+      if(!navigator.onLine||isOfflineJobId(jobId))throw Error("Les photos de pointage et le rapport sont conservés localement. La transmission du rapport sera possible après synchronisation des deux pointages.");
       // Ne pas faire confiance à un état ancien de la PWA ou à un rapport créé avant la mise à jour.
       const live=await punchApi("status",{job_id:jobId});
       if(String(state.current)!==String(jobId))throw Error("L'intervention affichée a changé. Rouvrez votre rapport.");
@@ -2442,6 +2653,7 @@ async function cancelJobWithConfirmation(jobId,btn){
     await localReportWrites;
     const [report,photos]=await Promise.all([offGet("reports",jobId),offPhotoMetas()]);
     if(report?.submit)throw new Error("Un rapport attend son envoi : suppression interdite.");
+    if((await offlinePunchesFor(jobId)).length)throw new Error("Des photos de pointage attendent la synchronisation. Synchronisez-les avant d'annuler cette intervention.");
     if(offlineSyncRunning||photos.some(p=>String(p.job_id)===jobId&&p.sync_state==="uploading"))
       throw new Error("Un transfert est en cours : réessayez après synchronisation.");
     const permission=await api("can_delete_unsubmitted_job",{job_id:jobId},{skipOffline:true,timeoutMs:9000});
