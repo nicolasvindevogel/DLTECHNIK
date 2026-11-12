@@ -1,4 +1,4 @@
-// DL TECHNIK V3.9.24 — installation sûre, aucun accès aux brouillons IndexedDB.
+// DL TECHNIK V3.9.25 — installation sûre, aucun accès aux brouillons IndexedDB.
 const CACHE='dl-technik-v3-9-24';
 const CORE=['./','./index.html','./manifest.webmanifest','./dl-technik-logo.png',
   './icon-192.png','./icon-512.png','./icon-512-maskable.png',

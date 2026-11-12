@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DL TECHNIK">
-<title>DL TECHNIK · V3.9.24</title>
+<title>DL TECHNIK · V3.9.25</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -370,7 +370,7 @@ html,body{background:#f6f8f7;color:#17211c}
 <div id="appRoot" class="hidden">
   <div class="app">
     <header class="topbar">
-      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.24</div></div><div id="network" class="network">EN LIGNE</div></div>
+      <div class="brand"><div class="logo real-logo"><img src="./dl-technik-logo.png" alt="DL TECHNIK"></div><div><div class="brand-main">DL TECHNIK</div><div class="brand-sub">INTERVENTIONS TERRAIN · WAPILOT · V3.9.25</div></div><div id="network" class="network">EN LIGNE</div></div>
       <div id="headline" class="headline"></div>
     </header>
     <section id="globalSyncToolbar" class="global-sync-toolbar" aria-label="État de la synchronisation automatique">
@@ -1706,7 +1706,7 @@ async function newJob(){
   try{
     const r=await ensureRefs();
     if(!r.can_create_jobs){$("content").innerHTML='<div class="card empty">Votre profil ne permet pas de créer de nouvelles interventions.</div>';return}
-    // V3.9.24 : prioriser le type le plus utilisé uniquement dans le formulaire de création.
+    // V3.9.25 : prioriser le type le plus utilisé uniquement dans le formulaire de création.
     // Les codes, la liste reçue de l'API et l'ordre des autres types restent inchangés.
     const types=[...(r.types||[])];
     const regularIndex=types.findIndex(t=>String(t.label||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase()==="nettoyage regulier");
@@ -2447,7 +2447,7 @@ async function cancelJobWithConfirmation(jobId,btn){
     const permission=await api("can_delete_unsubmitted_job",{job_id:jobId},{skipOffline:true,timeoutMs:9000});
     if(permission?.allowed!==true||String(permission?.job_id)!==jobId)
       throw new Error(permission?.reason||"Suppression non autorisée : cette intervention n'a pas été créée par vous depuis DL TECHNIK, ou elle a déjà été envoyée.");
-    if(!confirm("Supprimer cette intervention créée par vous dans DL TECHNIK ? Cette opération l'annulera dans WAPILOT. Les photos et les brouillons locaux seront ensuite retirés."))return;
+    if(!confirm("Annuler cette intervention ? Si un pointage photo a commencé, il sera marqué ANNULÉ dans l’historique (photo et heure conservées), sans comptabiliser une durée. Vous pourrez alors démarrer une nouvelle prestation. Les brouillons locaux seront retirés."))return;
     if(btn)btn.textContent="Annulation…";
     // Une seconde lecture protège les brouillons ajoutés durant la confirmation.
     const [recentReport,recentPhotos]=await Promise.all([offGet("reports",jobId),offPhotoMetas()]);
